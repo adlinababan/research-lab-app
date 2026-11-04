@@ -1,0 +1,14 @@
+{
+  "name": "research-lab-pelatihan",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Research Lab: aplikasi pelatihan riset berbantuan AI — pertanyaan riset, literatur OpenAlex, matriks gap, dan draf paper ke template IEEE.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node dev-server.js",
+    "dev:mock": "MOCK=1 node dev-server.js"
+  }
+}
