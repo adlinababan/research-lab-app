@@ -5,7 +5,7 @@ Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Set
 1. **Peserta dan judul**: peserta menulis judul penelitiannya sendiri (wajib), tujuan dan rencana metode (opsional), bahasa naskah, dan data penulis. AI tidak menentukan atau mengganti judul.
 2. **Literatur**: AI mengubah judul menjadi kata kunci bahasa Inggris, lalu peserta mencari makalah **nyata** di OpenAlex (semua ber-DOI) dan memilih 5–15 makalah.
 3. **Matriks gap**: AI menilai abstrak makalah terpilih terhadap aspek-aspek judul (Ya / Sebagian / Belum) dan mengusulkan gap; peserta mengoreksi dan memilih.
-4. **Draf paper**: AI menyusun draf untuk judul peserta yang **hanya mengutip makalah terpilih**. Angka hasil tidak dikarang; ditulis sebagai `[placeholder]`.
+4. **Judul dan draf**: berdasarkan gap yang dipilih, AI menyarankan 3 versi judul yang lebih tajam (topik tetap sama) beserta 5 kata kunci; peserta boleh memilih salah satu, menyunting, atau tetap memakai judul awal. Lalu AI menyusun draf yang **hanya mengutip makalah terpilih**. Angka hasil tidak dikarang; ditulis sebagai `[placeholder]`.
 5. **Integritas dan ekspor**: pratinjau gaya IEEE, pernyataan penggunaan AI, checklist, lalu unduh **.docx dalam template IEEE Conference A4**.
 
 Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api/`, frontend di `public/`.

@@ -6,7 +6,7 @@ const STEPS = [
   { title: "Peserta dan judul", sub: "Judul Anda sendiri" },
   { title: "Literatur", sub: "Cari di OpenAlex" },
   { title: "Matriks gap", sub: "Temukan celah riset" },
-  { title: "Draf paper", sub: "Disusun AI, disunting Anda" },
+  { title: "Judul dan draf", sub: "Saran judul, draf paper" },
   { title: "Integritas dan ekspor", sub: "Checklist, .docx IEEE" },
 ];
 const MAX_PAPERS = 15;
@@ -20,7 +20,7 @@ const defaultState = () => ({
   me: { lang: "en", prodi: "", title: "", aim: "", method: "", authors: [blankAuthor()] },
   lit: { query: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
-  draft: { keywords: "", data: null },
+  draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [] },
   exp: { ack: "", ackEdited: false, checks: {} },
   meta: { model: "", label: "" },
 });
@@ -408,6 +408,35 @@ function draftStats() {
   return `<div class="stats"><span class="stat"><b>${words(all)}</b> kata</span><span class="stat"><b>${ph}</b> placeholder</span><span class="stat"><b>${order.length}</b> dari ${state.lit.selected.length} makalah dikutip</span>${uncited ? `<span class="stat" style="color:var(--warn)">${uncited} makalah belum dikutip</span>` : ""}</div>`;
 }
 
+function titleCard() {
+  const D = state.draft;
+  const original = D.originalTitle || state.me.title;
+  const cur = state.me.title.trim();
+  const opts = D.titleSugs.length ? [
+    `<label class="qcard"><input type="radio" name="tsug" data-act="choose-title" value="-1" ${cur === original.trim() ? "checked" : ""}>
+      <div><div class="q">${esc(original)}</div><div class="hint">Judul awal Anda (tetap dipakai bila dipilih)</div></div></label>`,
+    ...D.titleSugs.map((t, i) => `<label class="qcard"><input type="radio" name="tsug" data-act="choose-title" value="${i}" ${cur === t.title.trim() ? "checked" : ""}>
+      <div><div class="q">${esc(t.title)}</div>${t.reason ? `<div class="hint">${esc(t.reason)}</div>` : ""}</div></label>`),
+  ].join("") : "";
+  const kws = D.keywordSugs.length ? `
+    <div class="row" style="align-items:center;gap:8px">
+      <span class="hint">Saran kata kunci:</span>
+      <div class="tags">${D.keywordSugs.map((k, i) => `<button type="button" class="btn ghost small" data-act="add-keyword" data-i="${i}">+ ${esc(k)}</button>`).join("")}</div>
+      <button type="button" class="btn ghost small" data-act="use-keywords">Pakai semua</button>
+    </div>` : "";
+  return `
+    <section class="card ai">
+      <h2>AI menyarankan judul dan kata kunci</h2>
+      <p class="hint" style="margin:0">Judul awal Anda: <b>${esc(original)}</b></p>
+      <p class="hint" style="margin:0">Gap yang dipilih: ${esc(state.gap.text || "(belum dipilih di langkah 3)")}</p>
+      <p class="hint" style="margin:0">AI hanya mempertajam judul Anda agar gap terlihat jelas, tanpa mengganti topik. Anda boleh tetap memakai judul awal.</p>
+      <div>${btn("suggest-titles", D.titleSugs.length ? "Sarankan ulang" : "Sarankan judul dan kata kunci", { disabled: !state.gap.text.trim() || !original.trim() })}</div>
+      ${errBox("suggest-titles")}
+      ${opts}
+      ${kws}
+    </section>`;
+}
+
 function viewDraft() {
   const d = state.draft.data;
   const editor = d ? `
@@ -416,11 +445,12 @@ function viewDraft() {
     <p class="hint">Pisahkan paragraf dengan satu baris kosong. Sitasi ditulis [nomor] sesuai daftar makalah terpilih; penomoran IEEE dirapikan otomatis saat ekspor. Teks dalam [kurung siku] lain adalah placeholder yang wajib diisi dari data atau analisis Anda.</p>` : "";
   const canDraft = state.me.title.trim() && state.gap.text.trim() && state.lit.selected.length >= 2;
   return `
-    ${header(3, "Draf paper", "Draf adalah rencana penelitian: belum ada hasil, jadi semua angka hasil ditulis sebagai placeholder.")}
+    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci, lalu susun draf. Draf adalah rencana penelitian: belum ada hasil, jadi semua angka hasil ditulis sebagai placeholder.")}
+    ${titleCard()}
     <section class="card human">
-      <h2>Judul dan kata kunci Anda</h2>
-      <label class="field"><span>Judul (milik Anda; AI tidak mengubahnya)</span><input data-bind="me.title" value="${esc(state.me.title)}"></label>
-      <label class="field"><span>Kata kunci (pisahkan dengan koma; terisi otomatis setelah draf disusun)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>
+      <h2>Keputusan Anda: judul dan kata kunci final</h2>
+      <label class="field"><span>Judul final (boleh disunting)</span><input data-bind="me.title" value="${esc(state.me.title)}"></label>
+      <label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>
     </section>
     <section class="card ai">
       <h2>AI menyusun draf</h2>
@@ -553,6 +583,18 @@ const actions = {
     row.cells[c] = order[(order.indexOf(row.cells[c]) + 1) % 3];
     save(); render();
   },
+  "suggest-titles": () => runTask("suggest-titles", async () => {
+    if (!state.draft.originalTitle) state.draft.originalTitle = state.me.title;
+    const r = await api("/api/llm", { task: "titles", title: state.draft.originalTitle, aim: state.me.aim, prodi: state.me.prodi, gap: state.gap.text, lang: state.me.lang });
+    state.draft.titleSugs = r.result.titles; state.draft.keywordSugs = r.result.keywords; noteModel(r);
+  }),
+  "add-keyword": (el) => {
+    const k = state.draft.keywordSugs[Number(el.dataset.i)];
+    const list = state.draft.keywords.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!list.some((x) => x.toLowerCase() === k.toLowerCase())) list.push(k);
+    state.draft.keywords = list.join(", "); save(); render();
+  },
+  "use-keywords": () => { state.draft.keywords = state.draft.keywordSugs.join(", "); save(); render(); },
   "make-draft": () => {
     if (state.draft.data && !window.confirm("Susun ulang draf? Suntingan Anda pada draf saat ini akan tertimpa.")) return;
     runTask("make-draft", async () => {
@@ -603,7 +645,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["model", "toggle-work", "choose-gap", "check", "lang", "aspect", "edit-abstract", "edit-section", "ack", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["model", "choose-title", "toggle-work", "choose-gap", "check", "lang", "aspect", "edit-abstract", "edit-section", "ack", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -625,6 +667,12 @@ document.addEventListener("change", (e) => {
     }
     save(); render(); return;
   }
+  if (act === "choose-title") {
+    const i = Number(el.value);
+    if (!state.draft.originalTitle) state.draft.originalTitle = state.me.title;
+    state.me.title = i < 0 ? state.draft.originalTitle : state.draft.titleSugs[i].title;
+    save(); render(); return;
+  }
   if (act === "choose-gap") { const i = Number(el.value); state.gap.chosen = i; state.gap.text = state.gap.gaps[i].statement; save(); render(); return; }
   if (act === "check") { state.exp.checks[el.dataset.k] = el.checked; save(); render(); return; }
   if (el.dataset?.bind && el.tagName === "SELECT") { setPath(state, el.dataset.bind, el.value); save(); }
@@ -634,7 +682,10 @@ document.addEventListener("input", (e) => {
   if (el.dataset?.bind) {
     let v = el.value;
     if (el.type === "number") v = Number(v) || "";
-    setPath(state, el.dataset.bind, v); save();
+    setPath(state, el.dataset.bind, v);
+    // Judul diubah di langkah 1 = judul awal baru; saran judul lama tidak berlaku lagi.
+    if (el.dataset.bind === "me.title" && state.step === 0) { state.draft.originalTitle = ""; state.draft.titleSugs = []; }
+    save();
     if (el.dataset.bind === "me.title" || el.dataset.bind === "gap.text") refreshChrome();
     return;
   }
