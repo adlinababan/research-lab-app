@@ -41,7 +41,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; max-width: 1240px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-right)) 80px max(16px, env(safe-area-inset-left)); }
 .stepper { position: sticky; top: 76px; align-self: start; display: flex; flex-direction: column; gap: 4px; }
 .step-link { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; text-align: left; padding: 9px 10px; border: 0; background: transparent; border-radius: 10px; cursor: pointer; color: var(--muted); }
-.step-link:hover { background: var(--surface); }
+.step-link:hover:not(:disabled) { background: var(--surface); }
+.step-link.locked, .step-link:disabled { opacity: .45; cursor: not-allowed; }
 .step-link[aria-current="step"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
 .step-num { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--line); font-weight: 600; font-size: 13px; background: var(--surface); }
 .step-link.done .step-num { border-color: var(--ok); color: var(--ok); }

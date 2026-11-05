@@ -307,8 +307,20 @@ function stepDone(i) {
     default: return false;
   }
 }
+// Langkah berurutan: langkah i hanya bisa dibuka bila semua langkah sebelumnya selesai.
+function firstOpenStep() {
+  for (let k = 0; k < STEPS.length - 1; k++) if (!stepDone(k)) return k;
+  return STEPS.length - 1;
+}
+const stepUnlocked = (i) => i <= firstOpenStep();
 function goto(i) {
-  state.step = Math.max(0, Math.min(STEPS.length - 1, i));
+  i = Math.max(0, Math.min(STEPS.length - 1, i));
+  if (!stepUnlocked(i)) {
+    const need = firstOpenStep();
+    toast(`Selesaikan langkah ${need + 1} (${STEPS[need].title}) terlebih dahulu.`);
+    i = need;
+  }
+  state.step = i;
   save(); render();
   window.scrollTo({ top: 0, behavior: "smooth" });
   $("#main").focus({ preventScroll: true });
@@ -316,11 +328,14 @@ function goto(i) {
 
 // ---------- render ----------
 function render() {
-  $("#stepper").innerHTML = STEPS.map((s, i) => `
-    <button type="button" class="step-link ${stepDone(i) ? "done" : ""}" data-act="goto" data-i="${i}" ${state.step === i ? 'aria-current="step"' : ""}>
+  $("#stepper").innerHTML = STEPS.map((s, i) => {
+    const locked = !stepUnlocked(i);
+    return `
+    <button type="button" class="step-link ${stepDone(i) ? "done" : ""} ${locked ? "locked" : ""}" data-act="goto" data-i="${i}" ${state.step === i ? 'aria-current="step"' : ""} ${locked ? `disabled aria-disabled="true" title="Selesaikan langkah ${firstOpenStep() + 1} terlebih dahulu"` : ""}>
       <span class="step-num">${stepDone(i) ? "✓" : i + 1}</span>
       <span class="step-text"><span class="step-title">${s.title}</span><br><span class="step-sub">${s.sub}</span></span>
-    </button>`).join("");
+    </button>`;
+  }).join("");
   const views = [viewMe, viewLiterature, viewGap, viewDraft, viewExport];
   $("#main").innerHTML = views[state.step]();
 }
@@ -1336,6 +1351,8 @@ async function init() {
     config = await api("/api/config");
     if (config.eventName) $("#eventName").textContent = config.eventName;
     updateChip();
+    // Langkah tersimpan yang belum boleh dibuka (mis. key dihapus) dikembalikan ke langkah yang belum selesai.
+    if (!stepUnlocked(state.step)) state.step = firstOpenStep();
     render();
     if (config.accessRequired && !accessCode()) showAccess(true);
   } catch {
