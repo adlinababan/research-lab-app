@@ -31,8 +31,22 @@ export default async function handler(req, res) {
     if (isMock()) {
       return sendJson(res, 200, { result: t.clean(mockLlm(body.task, body), body), model: "mode uji", label: "Mode uji", mock: true, prompt: { system, user } });
     }
-    const { json, model, label } = await askJson(system, user, { temperature: t.temperature, maxTokens: t.maxTokens, userKey: userKeys(req).ai, model: body.model });
-    sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
+    const opts = { temperature: t.temperature, maxTokens: t.maxTokens, userKey: userKeys(req).ai, model: body.model };
+    try {
+      const { json, model, label } = await askJson(system, user, opts);
+      return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
+    } catch (e) {
+      // Draf panjang yang terpotong, rusak, atau terlalu lama: coba sekali lagi dengan versi ringkas.
+      if (!["draft", "review"].includes(body.task) || !["truncated", "badjson", "timeout"].includes(e.code)) throw e;
+      if (body.task === "review") {
+        // Review: cukup coba sekali lagi dengan ruang token lebih besar.
+        const { json, model, label } = await askJson(system, user, { ...opts, maxTokens: 6000 });
+        return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
+      }
+      const small = t.build({ ...body, compact: true });
+      const { json, model, label } = await askJson(small.system, small.user, { ...opts, maxTokens: 9000 });
+      return sendJson(res, 200, { result: t.clean(json, body), model, label, compact: true, prompt: { system: small.system, user: small.user } });
+    }
   } catch (e) {
     sendError(res, e.status || 500, e.message || "Permintaan ke AI gagal.", e.code ? { code: e.code } : {});
   }

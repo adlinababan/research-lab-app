@@ -1258,6 +1258,7 @@ const actions = {
         task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(),
       });
       r.result.sections.forEach((x) => { x.orig = [...x.paragraphs]; });
+      if (r.compact) toast("Jawaban pertama terlalu panjang, jadi draf disusun ulang otomatis dalam versi ringkas.");
       state.draft.data = r.result;
       if (!state.draft.keywords.trim() && r.result.keywords?.length) state.draft.keywords = r.result.keywords.join(", ");
       noteModel(r);
