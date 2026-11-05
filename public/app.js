@@ -187,6 +187,7 @@ async function api(path, body, { raw = false } = {}) {
   const k = getKeys();
   if (k.ai) h["x-ai-key"] = k.ai;
   if (k.openalex) h["x-openalex-key"] = k.openalex;
+  if (path === "/api/llm" && body) body = { ...body, model: chosenModel() };
   const resp = await fetch(path, { method: body ? "POST" : "GET", headers: h, body: body ? JSON.stringify(body) : undefined });
   if (resp.status === 401) { showAccess(true); throw new Error("Kode akses diperlukan."); }
   if (raw && resp.ok) return resp;
@@ -353,12 +354,29 @@ function checkOut() {
   const row = (name, r) => r ? `<div class="alert ${r.ok ? "ok" : "err"}"><b>${name}:</b> ${r.ok ? "Ready!" : esc(r.msg)}</div>` : "";
   return row("Research Lab key", keyCheck.ai) + row("OpenAlex", keyCheck.openalex);
 }
-function modelPicker() {
+// Pilihan model disimpan per perangkat; server hanya menerima model yang diizinkan.
+const MODEL_KEY = "research-lab-model";
+function modelList() {
   const models = config?.openrouterModels || [];
   const locked = config?.lockedModel;
-  if (!models.length || !locked) return "";
-  const list = models.some((m) => m.id === locked) ? models : [{ id: locked, label: locked }, ...models];
-  return `<div style="max-width:640px"><select data-act="model" aria-label="Model AI">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === locked ? "selected" : "disabled"}>${esc(m.label)}</option>`).join("")}</select></div>`;
+  if (!locked) return models;
+  return models.some((m) => m.id === locked) ? models.map((m) => m.id === locked ? { ...m, selectable: true } : m) : [{ id: locked, label: locked, selectable: true }, ...models];
+}
+function chosenModel() {
+  let v = "";
+  try { v = localStorage.getItem(MODEL_KEY) || ""; } catch {}
+  return modelList().some((m) => m.id === v && m.selectable) ? v : (config?.lockedModel || "");
+}
+function modelNote() {
+  const m = modelList().find((x) => x.id === chosenModel());
+  return m?.free ? "Model gratis dibatasi OpenRouter sekitar 20 permintaan per menit untuk satu akun. Bila muncul pesan dibatasi, kembali ke Gemini 2.5 Flash-Lite." : "";
+}
+function modelPicker() {
+  const list = modelList();
+  if (!list.length) return "";
+  const cur = chosenModel();
+  const note = modelNote();
+  return `<div style="max-width:640px;display:flex;flex-direction:column;gap:4px"><select data-act="model" aria-label="Model AI">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === cur ? "selected" : ""} ${m.selectable ? "" : "disabled"}>${esc(m.label)}</option>`).join("")}</select><span class="hint" id="modelNote" ${note ? "" : "hidden"}>${esc(note)}</span></div>`;
 }
 function keyCard() {
   const k = getKeys();
@@ -1015,7 +1033,13 @@ document.addEventListener("change", (e) => {
     else Object.assign(a, { deptKey: "", dept: "", faculty: "", prodi: "" });
     save(); render(); return;
   }
-  if (act === "model") { el.value = config?.lockedModel || el.value; return; }
+  if (act === "model") {
+    try { localStorage.setItem(MODEL_KEY, el.value); } catch {}
+    el.value = chosenModel();
+    const n = document.getElementById("modelNote");
+    if (n) { const t = modelNote(); n.textContent = t; n.hidden = !t; }
+    return;
+  }
   if (act === "lens") { state.lit.lens = el.value; save(); return; }
   if (act === "tag-prodi") {
     const w = state.lit.selected.find((x) => x.id === el.dataset.id);

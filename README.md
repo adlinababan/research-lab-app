@@ -77,6 +77,12 @@ Alternatif tanpa GitHub: pasang Node.js, lalu di folder proyek jalankan `npx ver
 
 > Paket Vercel Hobby (gratis) ditujukan untuk penggunaan pribadi dan non-komersial. Untuk pelatihan berbayar atau resmi institusi, pertimbangkan paket Pro atau akun institusi.
 
+### Pilihan model AI
+
+Peserta bisa memilih salah satu dari empat model di kartu API key: **Gemini 2.5 Flash-Lite** (bawaan, berbayar sangat murah), **NVIDIA Nemotron 3 Ultra (free)**, **Gemma 4 31B (free)**, dan **Gemma 4 26B A4B (free)**. Model lain tampil tetapi nonaktif. Server hanya menerima model dari daftar ini; pilihan lain otomatis diganti model bawaan.
+
+Catatan model gratis OpenRouter: dibatasi sekitar 20 permintaan per menit per akun dan ada kuota harian (lebih besar bila akun pernah membeli kredit minimal US$10). Bila 20+ peserta memakai satu Research Lab key bersama, model gratis cepat terkena batas, jadi pakai Gemini 2.5 Flash-Lite sebagai pilihan utama dan model gratis sebagai cadangan. Model gratis juga mensyaratkan izin di openrouter.ai/settings/privacy.
+
 ## Checklist hari H (20+ peserta serentak)
 
 Aplikasi sudah diuji beban dengan **30 peserta simulasi yang menjalankan alur penuh bersamaan** (cek key, kata kunci, 2× pencarian, matriks gap, judul, draf, kontribusi, ekspor .docx), dengan 10–15% penolakan sementara (429) yang disuntikkan dari penyedia AI dan OpenAlex: **30/30 berhasil**, draf terlama 44 detik. Kunci ketahanannya: coba ulang otomatis dengan jeda acak, batas waktu per panggilan, dan pembatas laju per perangkat (bukan per IP, karena peserta berbagi Wi-Fi kampus).

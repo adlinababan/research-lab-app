@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     if (isMock()) {
       return sendJson(res, 200, { result: t.clean(mockLlm(body.task, body), body), model: "mode uji", label: "Mode uji", mock: true, prompt: { system, user } });
     }
-    const { json, model, label } = await askJson(system, user, { temperature: t.temperature, maxTokens: t.maxTokens, userKey: userKeys(req).ai });
+    const { json, model, label } = await askJson(system, user, { temperature: t.temperature, maxTokens: t.maxTokens, userKey: userKeys(req).ai, model: body.model });
     sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
   } catch (e) {
     sendError(res, e.status || 500, e.message || "Permintaan ke AI gagal.", e.code ? { code: e.code } : {});
