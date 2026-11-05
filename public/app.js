@@ -319,7 +319,8 @@ function oaTag() {
   return serverHasOpenAlex() ? TAG.mid("Opsional (server punya key)") : TAG.bad("Wajib diisi");
 }
 function checkOut() {
-  const row = (name, r) => r ? `<div class="alert ${r.ok ? "ok" : "err"}"><b>${name}:</b> ${esc(r.msg)}</div>` : "";
+  // Berhasil cukup "Ready!"; bila gagal, tampilkan penjelasan lengkap.
+  const row = (name, r) => r ? `<div class="alert ${r.ok ? "ok" : "err"}"><b>${name}:</b> ${r.ok ? "Ready!" : esc(r.msg)}</div>` : "";
   return row("Research Lab key", keyCheck.ai) + row("OpenAlex", keyCheck.openalex);
 }
 function modelPicker() {
@@ -327,9 +328,7 @@ function modelPicker() {
   const locked = config?.lockedModel;
   if (!models.length || !locked) return "";
   const list = models.some((m) => m.id === locked) ? models : [{ id: locked, label: locked, price: "-" }, ...models];
-  return `<label class="field" style="max-width:640px"><span>Model AI (dikunci narasumber) · harga per 1 juta token input / output</span>
-    <select data-act="model" aria-describedby="modelHint">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === locked ? "selected" : "disabled"}>${esc(m.label)} (${esc(m.price)})${m.id === locked ? "" : " · tidak tersedia"}</option>`).join("")}</select>
-    <span class="hint" id="modelHint">Semua peserta memakai model yang sama agar hasil dan biaya seragam. Model lain hanya ditampilkan sebagai informasi.</span></label>`;
+  return `<div style="max-width:640px"><select data-act="model" aria-label="Model AI">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === locked ? "selected" : "disabled"}>${esc(m.label)} (${esc(m.price)})${m.id === locked ? "" : " · tidak tersedia"}</option>`).join("")}</select></div>`;
 }
 function keyCard() {
   const k = getKeys();
