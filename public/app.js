@@ -327,8 +327,8 @@ function modelPicker() {
   const models = config?.openrouterModels || [];
   const locked = config?.lockedModel;
   if (!models.length || !locked) return "";
-  const list = models.some((m) => m.id === locked) ? models : [{ id: locked, label: locked, price: "-" }, ...models];
-  return `<div style="max-width:640px"><select data-act="model" aria-label="Model AI">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === locked ? "selected" : "disabled"}>${esc(m.label)} (${esc(m.price)})${m.id === locked ? "" : " · tidak tersedia"}</option>`).join("")}</select></div>`;
+  const list = models.some((m) => m.id === locked) ? models : [{ id: locked, label: locked }, ...models];
+  return `<div style="max-width:640px"><select data-act="model" aria-label="Model AI">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === locked ? "selected" : "disabled"}>${esc(m.label)}</option>`).join("")}</select></div>`;
 }
 function keyCard() {
   const k = getKeys();
