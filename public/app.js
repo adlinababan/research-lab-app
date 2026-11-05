@@ -45,7 +45,7 @@ const defaultState = () => ({
   me: { lang: "en", title: "", aim: "", method: "", authors: [blankAuthor()] },
   lit: { query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
-  draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [], guideChecks: {} },
+  draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [], guideChecks: {}, methodSugs: [], methodChosen: -1 },
   exp: {
     ack: "", ackEdited: false, checks: {},
     contrib: [""], contribAi: false,
@@ -425,7 +425,7 @@ function viewMe() {
           : `<label class="field"><span>Fakultas / school (otomatis)</span><input value="${esc(oneLine(a.faculty))}" readonly tabindex="-1" placeholder="Terisi setelah memilih departemen" class="readonly"></label>`}
         <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
         <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
-        <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@kampus.ac.id"></label>
+        <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@binus.ac.id atau ORCID 0000-0000-0000-0000"></label>
       </div>
       ${m.authors.length > 1 ? `<button type="button" class="btn ghost small author-del" data-act="del-author" data-i="${i}" aria-label="Hapus penulis ${i + 1}">Hapus</button>` : "<span></span>"}
     </div>`).join("");
@@ -436,7 +436,7 @@ function viewMe() {
       <h2>Ide penelitian</h2>
       <label class="field"><span>Judul penelitian (wajib)</span><textarea data-bind="me.title" rows="2" placeholder="mis. Pengaruh Motif Batik pada Kemasan terhadap Niat Beli Konsumen Mancanegara">${esc(m.title)}</textarea></label>
       <label class="field"><span>Tujuan atau pertanyaan penelitian (opsional, membantu AI lebih tepat)</span><textarea data-bind="me.aim" rows="2">${esc(m.aim)}</textarea></label>
-      <label class="field"><span>Rencana data dan metode (opsional)</span><textarea data-bind="me.method" rows="2" placeholder="mis. survei 200 responden, analisis SEM-PLS, dataset terbuka dari Kaggle">${esc(m.method)}</textarea></label>
+      <p class="hint" style="margin:0">Rencana data dan metode diisi di langkah 4, setelah gap dipilih, agar metode menjawab gap.</p>
       <div class="field"><span>Bahasa naskah</span>
         <div class="checks">
           <label class="check-pill"><input type="radio" name="lang" data-act="lang" value="en" ${m.lang === "en" ? "checked" : ""}>English (IEEE)</label>
@@ -602,6 +602,29 @@ function titleCard() {
       ${kws}
     </section>`;
 }
+// ---------- Rencana data dan metode (setelah gap dipilih) ----------
+function methodText(o) {
+  const L = isId() ? ["Desain", "Data", "Analisis", "Evaluasi"] : ["Design", "Data", "Analysis", "Evaluation"];
+  return [[L[0], o.design], [L[1], o.data], [L[2], o.analysis], [L[3], o.evaluation]]
+    .filter(([, v]) => String(v || "").trim()).map(([k, v]) => `${k}: ${String(v).trim().replace(/\.$/, "")}.`).join("\n");
+}
+function methodCard() {
+  const D = state.draft;
+  const opts = D.methodSugs.map((o, i) => `<label class="qcard"><input type="radio" name="msug" data-act="choose-method" value="${i}" ${D.methodChosen === i ? "checked" : ""}>
+      <div><div class="q">${esc(o.label || `Opsi ${i + 1}`)}</div>
+      <div class="hint" style="white-space:pre-line">${esc(methodText(o))}</div>
+      ${o.why ? `<div class="hint"><i>${isId() ? "Menjawab gap" : "Answers the gap"}:</i> ${esc(o.why)}</div>` : ""}</div></label>`).join("");
+  return `
+    <section class="card ai">
+      <h2>Rencana data dan metode</h2>
+      <p class="hint" style="margin:0">Metode dipilih sesudah gap agar benar-benar menjawab gap. Lihat matriks gap: metode apa yang sudah umum dipakai studi terdahulu, lalu pilih desain yang melengkapinya.</p>
+      <div>${btn("suggest-method", D.methodSugs.length ? "Sarankan ulang" : "Sarankan metode", { disabled: !state.gap.text.trim() || !state.me.title.trim() })}</div>
+      ${errBox("suggest-method")}
+      ${promptViewer("method")}
+      ${opts}
+      <label class="field"><span>Rencana data dan metode tim (boleh disunting; dipakai AI untuk bagian Metode)</span><textarea data-bind="me.method" rows="5" placeholder="${isId() ? "Desain: …\nData: …\nAnalisis: …\nEvaluasi: …" : "Design: …\nData: …\nAnalysis: …\nEvaluation: …"}">${esc(state.me.method)}</textarea></label>
+    </section>`;
+}
 // ---------- Ketentuan section (standar conference IEEE) ----------
 const SECTION_KEYS = ["intro", "related", "method", "results", "conclusion"];
 const GUIDE = {
@@ -727,15 +750,17 @@ function viewDraft() {
     <p class="hint">Pisahkan paragraf dengan satu baris kosong. Sitasi ditulis [nomor] sesuai daftar referensi terpilih; penomoran IEEE dirapikan otomatis saat ekspor. Teks dalam [kurung siku] lain adalah placeholder yang wajib diisi dari data atau analisis tim.</p>` : "";
   const canDraft = state.me.title.trim() && state.gap.text.trim() && state.lit.selected.length >= 2;
   return `
-    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci, lalu susun draf. Draf adalah rencana penelitian: belum ada hasil, jadi semua angka hasil ditulis sebagai placeholder.")}
+    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci dan rencana metode, lalu susun draf. Draf adalah rencana penelitian: belum ada hasil, jadi semua angka hasil ditulis sebagai placeholder.")}
     ${titleCard()}
     <section class="card human">
       <h2>Keputusan tim: judul dan kata kunci final</h2>
       ${guided("title", `<label class="field"><span>Judul final (boleh disunting)</span><textarea data-bind="me.title" rows="3">${esc(state.me.title)}</textarea></label>`)}
       ${guided("keywords", `<label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>`)}
     </section>
+    ${methodCard()}
     <section class="card ai">
       <h2>AI menyusun draf</h2>
+      ${state.me.method.trim() ? "" : '<div class="alert warn">Rencana data dan metode belum diisi. Draf tetap bisa disusun, tetapi bagian Metode akan berupa placeholder umum.</div>'}
       <p class="hint">Bahasa naskah: <b>${isId() ? "Bahasa Indonesia" : "English"}</b>. AI hanya boleh mengutip ${state.lit.selected.length} referensi terpilih dan diminta mengaitkan sudut pandang antarprodi. Proses 20–60 detik.</p>
       <div>${btn("make-draft", d ? "Susun ulang draf (suntingan akan tertimpa)" : "Susun draf paper", { disabled: !canDraft, busyLabel: "Menyusun draf… (20–60 detik)" })}</div>
       ${!canDraft ? '<div class="alert warn">Isi judul, gap yang dipilih, dan minimal dua referensi terlebih dahulu.</div>' : ""}
@@ -753,13 +778,14 @@ function paperPreview() {
   if (!d) return '<div class="alert warn">Draf belum ada. Susun draf di langkah sebelumnya.</div>';
   const { order, map } = citationMap();
   const byN = new Map(state.lit.selected.map((w) => [w.n, w]));
-  const authors = state.me.authors.map((a) => `<div>${esc(a.name || "[Nama Penulis]")}${[a.dept, a.faculty, a.org].filter((x) => x.trim()).map((x) => `<i>${esc(x).replace(/\n/g, "<br>")}</i>`).join("")}${[a.city, a.email].filter((x) => x.trim()).map((x) => `${esc(x)}<br>`).join("")}</div>`).join("");
+  // Format blok penulis IEEE (9 pt): nama; departemen, fakultas, organisasi (miring); kota, negara; email atau ORCID.
+  const authors = state.me.authors.map((a) => `<div class="au"><span>${esc(a.name || "[Nama Penulis]")}</span>${[a.dept, a.faculty, a.org].filter((x) => x.trim()).map((x) => `<i>${esc(x).replace(/\n/g, "<br>")}</i>`).join("")}${[a.city, a.email].filter((x) => x.trim()).map((x) => `<span>${esc(x)}</span>`).join("")}</div>`).join("");
   const m = state.gap.matrix;
   const matrix = m?.rows?.length ? `<div class="tcap">${isId() ? "Tabel I. Matriks Gap Studi Terdahulu" : "Table I. Gap Matrix of Reviewed Studies"}</div><table><tr><th>Ref.</th>${m.aspects.map((a) => `<th>${esc(a)}</th>`).join("")}</tr>${m.rows.filter((r) => map.has(r.n)).sort((a, b) => map.get(a.n) - map.get(b.n)).map((r) => `<tr><td>[${map.get(r.n)}]</td>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : "";
   const ack = state.exp.ackEdited ? state.exp.ack : disclosure();
   return `<article class="paper-preview" aria-label="Pratinjau paper">
     <div class="pt">${esc(state.me.title || "[Judul Paper]")}</div>
-    <div class="pa">${authors}</div>
+    <div class="pa" style="--n:${Math.min(3, state.me.authors.length)}">${authors}</div>
     <div class="cols">
       <p class="abs noindent"><i>${isId() ? "Abstrak" : "Abstract"}</i>—${renderRich(d.abstract, map)}</p>
       <p class="abs noindent"><i>${isId() ? "Kata kunci" : "Keywords"}</i>—${esc(state.draft.keywords)}</p>
@@ -934,6 +960,10 @@ const actions = {
     const r = await api("/api/llm", { task: "titles", title: state.draft.originalTitle, aim: state.me.aim, prodi: teamProdi(), gap: state.gap.text, lang: state.me.lang });
     state.draft.titleSugs = r.result.titles; state.draft.keywordSugs = r.result.keywords; noteModel(r);
   }),
+  "suggest-method": () => runTask("suggest-method", async () => {
+    const r = await api("/api/llm", { task: "method", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(false), matrix: state.gap.matrix });
+    state.draft.methodSugs = r.result.options; state.draft.methodChosen = -1; noteModel(r);
+  }),
   "add-keyword": (el) => {
     const k = state.draft.keywordSugs[Number(el.dataset.i)];
     const list = state.draft.keywords.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1011,7 +1041,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1021,6 +1051,12 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); return; }
+  if (act === "choose-method") {
+    const i = Number(el.value); const o = state.draft.methodSugs[i];
+    if (!o) return;
+    if (state.me.method.trim() && state.draft.methodChosen < 0 && !window.confirm("Ganti rencana metode yang sudah Anda tulis dengan opsi ini?")) { el.checked = false; return; }
+    state.draft.methodChosen = i; state.me.method = methodText(o); save(); render(); return;
+  }
   if (act === "guide-check") {
     const k = el.dataset.k; const arr = state.draft.guideChecks[k] || (state.draft.guideChecks[k] = []);
     arr[Number(el.dataset.i)] = el.checked; save(); return;

@@ -1,12 +1,13 @@
 import { readJson, sendJson, sendError, checkAccess, rateLimit, isMock, userKeys } from "../lib/http.js";
 import { askJson } from "../lib/llm.js";
-import { keywordsPrompt, cleanKeywords, gapPrompt, cleanGap, titlesPrompt, cleanTitles, draftPrompt, cleanDraft, contribPrompt, cleanContrib } from "../lib/prompts.js";
+import { keywordsPrompt, cleanKeywords, gapPrompt, cleanGap, titlesPrompt, cleanTitles, draftPrompt, cleanDraft, contribPrompt, cleanContrib, methodPrompt, cleanMethod } from "../lib/prompts.js";
 import { mockLlm } from "../lib/mock.js";
 
 const TASKS = {
   keywords: { build: keywordsPrompt, clean: (j, b) => cleanKeywords(j, b), temperature: 0.3, maxTokens: 800 },
   gap: { build: gapPrompt, clean: (j, b) => cleanGap(j, (b.papers || []).map((w) => Number(w.n))), temperature: 0.2, maxTokens: 4000 },
   titles: { build: titlesPrompt, clean: (j) => cleanTitles(j), temperature: 0.6, maxTokens: 1200 },
+  method: { build: methodPrompt, clean: (j) => cleanMethod(j), temperature: 0.5, maxTokens: 1800 },
   contrib: { build: contribPrompt, clean: (j, b) => cleanContrib(j, b), temperature: 0.3, maxTokens: 1500 },
   draft: { build: draftPrompt, clean: (j, b) => cleanDraft(j, (b.papers || []).map((w) => Number(w.n)), b.lang), temperature: 0.4, maxTokens: 9000 },
 };

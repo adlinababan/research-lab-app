@@ -144,8 +144,9 @@ table.matrix td.c { text-align: center; width: 104px; }
 /* Pratinjau gaya IEEE */
 .paper-preview { background: #fff; color: #111; font-family: var(--f-paper); border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 10px 30px rgba(20,30,60,.10); padding: 36px 38px; font-size: 13px; line-height: 1.4; }
 .paper-preview .pt { font-size: 24px; text-align: center; line-height: 1.2; margin-bottom: 10px; }
-.paper-preview .pa { display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; text-align: center; font-size: 11.5px; margin-bottom: 14px; }
-.paper-preview .pa i { display: block; }
+/* Blok penulis IEEE: 9 pt, maksimal 3 penulis per baris. */
+.paper-preview .pa { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); column-gap: 18px; row-gap: 12px; text-align: center; font-size: 9pt; line-height: 1.25; margin-bottom: 14px; }
+.paper-preview .pa .au > span, .paper-preview .pa i { display: block; }
 .paper-preview .cols { column-count: 2; column-gap: 22px; text-align: justify; hyphens: auto; }
 .paper-preview .abs { font-weight: 700; font-size: 12px; }
 .paper-preview h4 { font-variant: small-caps; text-align: center; font-weight: 400; font-size: 13px; margin: 10px 0 4px; break-after: avoid; }
@@ -230,6 +231,7 @@ input.readonly { background: var(--bg); color: var(--muted); cursor: default; }
   .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); }
   .paper-preview { padding: 20px 18px; }
   .paper-preview .cols { column-count: 1; }
+  .paper-preview .pa { grid-template-columns: 1fr; }
   .brand-sub { display: none; }
 }
 @media print {
