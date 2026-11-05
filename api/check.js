@@ -8,8 +8,8 @@ const money = (n) => `US$${Number(n).toFixed(2)}`;
 async function checkOpenRouter(key) {
   const h = { Authorization: `Bearer ${key}` };
   const r = await fetch("https://openrouter.ai/api/v1/key", { headers: h });
-  if (r.status === 401 || r.status === 403) return { ok: false, msg: "Key OpenRouter ditolak. Periksa apakah key tersalin utuh (diawali sk-or-), atau buat key baru di menu Keys." };
-  if (!r.ok) return { ok: false, msg: `OpenRouter mengembalikan status ${r.status}. Coba lagi sebentar.` };
+  if (r.status === 401 || r.status === 403) return { ok: false, msg: "Research Lab key ditolak. Periksa apakah key tersalin utuh tanpa spasi, atau minta key baru ke narasumber." };
+  if (!r.ok) return { ok: false, msg: `Layanan AI mengembalikan status ${r.status}. Coba lagi sebentar.` };
   const info = (await r.json().catch(() => ({})))?.data || {};
   let balance = null;
   try {
@@ -20,12 +20,12 @@ async function checkOpenRouter(key) {
     }
   } catch {}
   if (info.limit_remaining != null && Number(info.limit_remaining) <= 0) {
-    return { ok: false, msg: "Key valid, tetapi batas kredit pada key ini sudah habis. Naikkan limit key di openrouter.ai → Keys." };
+    return { ok: false, msg: "Key valid, tetapi kuota pada key ini sudah habis. Hubungi narasumber." };
   }
   if (balance != null && balance <= 0) {
-    return { ok: false, msg: `Key valid, tetapi saldo ${money(balance)}. Isi kredit di openrouter.ai → Credits (minimal US$5) agar AI bisa dipakai.` };
+    return { ok: false, msg: `Key valid, tetapi saldo ${money(balance)}. Hubungi narasumber agar saldo diisi.` };
   }
-  return { ok: true, msg: `Key OpenRouter valid${balance != null ? `, saldo ${money(balance)}` : ""}${info.limit_remaining != null ? `, sisa limit key ${money(info.limit_remaining)}` : ""}.` };
+  return { ok: true, msg: `Research Lab key valid${info.limit_remaining != null ? `, sisa kuota ${money(info.limit_remaining)}` : balance != null ? `, saldo ${money(balance)}` : ""}.` };
 }
 
 async function checkGemini(key) {
@@ -57,9 +57,9 @@ export default async function handler(req, res) {
     const kind = keyKind(k.ai);
     if (kind === "openrouter") out.ai = await checkOpenRouter(k.ai);
     else if (kind === "gemini") out.ai = await checkGemini(k.ai);
-    else if (k.ai) out.ai = { ok: false, msg: "Format key AI tidak dikenal. Key OpenRouter diawali sk-or-." };
+    else if (k.ai) out.ai = { ok: false, msg: "Format Research Lab key tidak dikenal. Salin ulang key dari narasumber." };
     else if ((process.env.OPENROUTER_API_KEY || "").trim()) out.ai = await checkOpenRouter(process.env.OPENROUTER_API_KEY.trim()).then((r) => ({ ...r, msg: `Memakai key narasumber di server. ${r.msg}` }));
-    else out.ai = { ok: false, msg: "Key OpenRouter belum diisi." };
+    else out.ai = { ok: false, msg: "Research Lab key belum diisi." };
   } catch (e) { out.ai = { ok: false, msg: `Gagal memeriksa key AI: ${e.message}` }; }
   try {
     const oa = k.openalex || (process.env.OPENALEX_API_KEY || "").trim();

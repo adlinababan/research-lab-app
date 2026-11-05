@@ -20,7 +20,7 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 
 | Key | Untuk | Cara mendapatkan |
 |---|---|---|
-| **OpenRouter** (`sk-or-…`) | AI (kata kunci, matriks gap, draf) | openrouter.ai → Sign in → **Credits**: isi minimal US$5 → **Keys** → **Create Key** |
+| **Research Lab key** (key OpenRouter `sk-or-…` yang dibagikan narasumber) | AI (kata kunci, matriks gap, draf) | Narasumber membuatnya di openrouter.ai → **Keys** → **Create Key** (beri limit kredit per key), lalu membagikannya ke peserta. Di aplikasi tidak ada panduan pendaftaran untuk key ini. |
 | **OpenAlex** | Pencarian literatur | Buat akun gratis di openalex.org → buka openalex.org/settings/api → salin key (US$1 per hari gratis, ±1.000 pencarian) |
 
 Setelah menempel keduanya, peserta mengeklik **Cek kedua key**: aplikasi memastikan key OpenRouter valid dan menampilkan saldonya, lalu memastikan key OpenAlex diterima. Tombol **Lanjut** baru aktif setelah judul dan kedua key terisi. Key hanya disimpan di browser peserta dan tidak disimpan di server.
