@@ -1,8 +1,9 @@
 {
   "outputDirectory": "public",
   "functions": {
-    "api/llm.js": { "maxDuration": 120 },
+    "api/llm.js": { "maxDuration": 300 },
     "api/docx.js": { "maxDuration": 30, "includeFiles": "template/**" },
-    "api/search.js": { "maxDuration": 30 }
+    "api/search.js": { "maxDuration": 60 },
+    "api/check.js": { "maxDuration": 30 }
   }
 }

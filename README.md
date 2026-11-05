@@ -6,6 +6,7 @@ Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Set
 2. **Literatur sesuai rumpun tim**: saran kata kunci **hanya berdasar rumpun prodi yang terwakili di tim penulis**. Bila tim terdiri atas Computer Science dan Visual Communication Design, kata kunci *irisan* menggabungkan keduanya, dan setiap lensa rumpun tetap dikaitkan dengan rumpun lain. Setiap referensi OpenAlex (ber-DOI, dengan bidang ilmunya) ditandai rumpunnya; minimal 3 referensi yang mencakup minimal 2 rumpun tim (atau 1 bila tim hanya 1 rumpun).
 3. **Matriks gap** (bahasa Inggris): AI menilai abstrak dari sudut pandang beberapa rumpun prodi (Yes / Partial / No) dan mengusulkan gap di irisan antardisiplin, dengan sitasi nama penulis dari data OpenAlex, misalnya *Lee et al. (2021) [3]* atau *Putri and Hadi (2023) [5]*. Draf juga memakai label yang sama saat menyebut penulis.
 4. **Judul dan draf**: saran 3 judul yang lebih tajam + 5 kata kunci (judul awal tetap bisa dipakai), lalu draf yang **hanya mengutip referensi terpilih** dengan angka hasil sebagai `[placeholder]`.
+4b. **Panel ketentuan IEEE**: di sebelah kanan setiap bagian draf (judul, abstrak, keywords, kelima section) ada ketentuan conference IEEE, checklist yang bisa dicentang, dan cek otomatis (jumlah kata, sitasi, placeholder). Setiap kartu AI juga punya tombol **Lihat prompt AI** untuk melihat instruksi persis yang dikirim ke AI.
 5. **Integritas dan ekspor**: **Open Contributionship** (peran CRediT per penulis, bisa disarankan AI lalu disunting), **Open Data** (tiga templat: dataset terbuka pihak lain, data sendiri dibagikan, atau data tidak dapat dibagikan), pernyataan penggunaan AI, checklist, lalu unduh **.docx template IEEE Conference A4** (tiga penulis per baris).
 
 Model AI **dikunci** ke `google/gemini-2.5-flash-lite` (US$0,10 / US$0,40 per juta token) agar hasil dan biaya seragam; model lain hanya tampil sebagai informasi. Narasumber dapat menggantinya lewat env `OPENROUTER_MODEL`.
@@ -75,6 +76,23 @@ Kolom key AI juga menerima key Gemini (`AIza…`, dari aistudio.google.com/apike
 Alternatif tanpa GitHub: pasang Node.js, lalu di folder proyek jalankan `npx vercel` dan ikuti petunjuknya. Env var bisa diisi lewat dasbor Vercel.
 
 > Paket Vercel Hobby (gratis) ditujukan untuk penggunaan pribadi dan non-komersial. Untuk pelatihan berbayar atau resmi institusi, pertimbangkan paket Pro atau akun institusi.
+
+## Checklist hari H (20+ peserta serentak)
+
+Aplikasi sudah diuji beban dengan **30 peserta simulasi yang menjalankan alur penuh bersamaan** (cek key, kata kunci, 2× pencarian, matriks gap, judul, draf, kontribusi, ekspor .docx), dengan 10–15% penolakan sementara (429) yang disuntikkan dari penyedia AI dan OpenAlex: **30/30 berhasil**, draf terlama 44 detik. Kunci ketahanannya: coba ulang otomatis dengan jeda acak, batas waktu per panggilan, dan pembatas laju per perangkat (bukan per IP, karena peserta berbagi Wi-Fi kampus).
+
+**H-1 (malam ini)**
+1. Vercel → **Deployments**: deployment teratas berstatus **Ready**.
+2. Buka alamat produksi di **jendela penyamaran** (incognito): halaman harus terbuka tanpa diminta login Vercel. Bila diminta login, matikan *Deployment Protection* untuk Production di Settings.
+3. Jalankan satu alur penuh dengan Research Lab key dan key OpenAlex sungguhan sampai unduh .docx.
+4. OpenRouter: pastikan saldo cukup (perkiraan < US$0,05 per peserta per alur, termasuk coba ulang). Bila memakai satu key untuk semua peserta, jangan beri limit kredit yang terlalu kecil pada key itu.
+5. OpenAlex: idealnya setiap peserta memakai key sendiri (1.000 pencarian/hari per key). Bila satu key dipakai bersama, 20 peserta × ±10 pencarian masih aman.
+
+**Hari H**
+1. 10 menit sebelum mulai, buka aplikasi dan klik **Cek kedua key** sekali (memanaskan server).
+2. Bagikan Research Lab key; peserta menempelkannya lalu klik **Cek kedua key** sampai keduanya **Ready!**.
+3. Bila muncul pesan "server model AI sedang padat", minta peserta menunggu 30–60 detik lalu klik lagi; aplikasi sudah mencoba ulang 3 kali secara otomatis.
+4. Isian peserta tersimpan di browser masing-masing; menyegarkan halaman tidak menghapus pekerjaan.
 
 ## C. Uji sebelum acara (wajib, H-1)
 

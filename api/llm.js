@@ -23,12 +23,13 @@ export default async function handler(req, res) {
     return sendError(res, 400, "Pilih minimal satu makalah di langkah Literatur terlebih dahulu.");
   }
   try {
-    if (isMock()) {
-      return sendJson(res, 200, { result: t.clean(mockLlm(body.task, body), body), model: "mode uji", label: "Mode uji", mock: true });
-    }
+    // Prompt dikembalikan ke peserta untuk pembelajaran (tidak memuat API key atau data rahasia).
     const { system, user } = t.build(body);
+    if (isMock()) {
+      return sendJson(res, 200, { result: t.clean(mockLlm(body.task, body), body), model: "mode uji", label: "Mode uji", mock: true, prompt: { system, user } });
+    }
     const { json, model, label } = await askJson(system, user, { temperature: t.temperature, maxTokens: t.maxTokens, userKey: userKeys(req).ai });
-    sendJson(res, 200, { result: t.clean(json, body), model, label });
+    sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
   } catch (e) {
     sendError(res, e.status || 500, e.message || "Permintaan ke AI gagal.", e.code ? { code: e.code } : {});
   }

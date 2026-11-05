@@ -45,13 +45,14 @@ const defaultState = () => ({
   me: { lang: "en", title: "", aim: "", method: "", authors: [blankAuthor()] },
   lit: { query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
-  draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [] },
+  draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [], guideChecks: {} },
   exp: {
     ack: "", ackEdited: false, checks: {},
     contrib: [""], contribAi: false,
     od: { type: "third", name: "", source: "", url: "", reason: "" },
   },
   meta: { model: "", label: "" },
+  prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
 let config = null;
@@ -101,6 +102,15 @@ function save() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 250
 window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
 
+// ID acak per perangkat, hanya untuk pembatas laju di server (bukan identitas peserta).
+let memClientId = "";
+function clientId() {
+  try {
+    let id = localStorage.getItem("research-lab-client");
+    if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()); localStorage.setItem("research-lab-client", id); }
+    return id;
+  } catch { return memClientId || (memClientId = String(Math.random()).slice(2) + Date.now()); }
+}
 function accessCode() { try { return localStorage.getItem(CODE_KEY) || ""; } catch { return ""; } }
 let memKeys = { ai: "", openalex: "" };
 function getKeys() {
@@ -173,7 +183,7 @@ function prodiChips(present, label) {
 }
 
 async function api(path, body, { raw = false } = {}) {
-  const h = { "Content-Type": "application/json", "x-access-code": accessCode() };
+  const h = { "Content-Type": "application/json", "x-access-code": accessCode(), "x-client-id": clientId() };
   const k = getKeys();
   if (k.ai) h["x-ai-key"] = k.ai;
   if (k.openalex) h["x-openalex-key"] = k.openalex;
@@ -183,6 +193,7 @@ async function api(path, body, { raw = false } = {}) {
   let data = null;
   try { data = await resp.json(); } catch {}
   if (!resp.ok) throw new Error(data?.error || `Server mengembalikan status ${resp.status}.`);
+  if (path === "/api/llm" && body?.task && data?.prompt) state.prompts[body.task] = data.prompt;
   return data;
 }
 
@@ -473,6 +484,7 @@ function viewLiterature() {
       <p class="hint" style="margin:0">Saran hanya berdasar rumpun prodi yang terwakili di tim penulis: <b>${esc(lensProdi().join(" × ") || "(belum ada, isi di langkah 1)")}</b>. ${lensProdi().length > 1 ? "Kata kunci <i>irisan</i> menggabungkan semua rumpun tersebut; lensa per rumpun tetap dikaitkan dengan rumpun lainnya." : "Kata kunci tetap di dalam rumpun tersebut."}</p>
       <div>${btn("suggest-keywords", L.suggestions.length ? "Sarankan ulang" : "Sarankan kata kunci", { disabled: !state.me.title.trim() || !lensProdi().length })}</div>
       ${errBox("suggest-keywords")}
+      ${promptViewer("keywords")}
       ${lenses}
       ${general}
     </section>
@@ -522,6 +534,7 @@ function viewGap() {
       <div>${btn("make-gap", m ? "Buat ulang matriks" : "Buat matriks gap", { disabled: few })}</div>
       ${few ? '<div class="alert warn">Pilih minimal dua referensi di langkah Literatur.</div>' : ""}
       ${errBox("make-gap")}
+      ${promptViewer("gap")}
       ${table}
       ${gaps ? `<h3 style="margin-top:6px">Kandidat gap</h3>${gaps}` : ""}
     </section>
@@ -566,15 +579,133 @@ function titleCard() {
       <p class="hint" style="margin:0">AI hanya mempertajam judul agar gap terlihat jelas, tanpa mengganti topik. Judul awal tetap boleh dipakai.</p>
       <div>${btn("suggest-titles", D.titleSugs.length ? "Sarankan ulang" : "Sarankan judul dan kata kunci", { disabled: !state.gap.text.trim() || !original.trim() })}</div>
       ${errBox("suggest-titles")}
+      ${promptViewer("titles")}
       ${opts}
       ${kws}
     </section>`;
 }
+// ---------- Ketentuan section (standar conference IEEE) ----------
+const SECTION_KEYS = ["intro", "related", "method", "results", "conclusion"];
+const GUIDE = {
+  title: { name: "Judul", points: [
+    "Spesifik: menyebut objek, variabel atau fokus, dan konteks penelitian.",
+    "Tanpa subjudul; template IEEE mengingatkan subjudul tidak tercatat di IEEE Xplore.",
+    "Tanpa simbol, karakter khusus, rumus, atau singkatan yang tidak umum.",
+    "Ringkas; patokan kerja sekitar 10–15 kata.",
+  ] },
+  abstract: { name: "Abstrak", points: [
+    "Satu paragraf: latar, gap, tujuan, metode, hasil (atau hasil yang diharapkan), dan kontribusi.",
+    "Tanpa sitasi, simbol, rumus, atau catatan kaki (peringatan di template IEEE).",
+    "Umumnya 150–250 kata; ikuti batas di call for papers konferensi tujuan.",
+    "Bisa dipahami tanpa membaca isi paper.",
+  ] },
+  keywords: { name: "Keywords (Index Terms)", points: [
+    "3–6 istilah, dipisahkan koma.",
+    "Istilah baku di bidangnya; cek IEEE Thesaurus bila konferensi memintanya.",
+    "Jangan sekadar mengulang kata-kata di judul.",
+  ] },
+  intro: { name: "I. Introduction", points: [
+    "Konteks dan pentingnya masalah, didukung sitasi.",
+    "Gap dari literatur (boleh sitasi naratif penulis–tahun atau merujuk Tabel I).",
+    "Tujuan atau pertanyaan penelitian.",
+    "Kontribusi paper dinyatakan eksplisit.",
+    "Opsional: satu kalimat tentang susunan paper.",
+  ] },
+  related: { name: "II. Related Work", points: [
+    "Sintesis per tema atau per rumpun prodi, bukan ringkasan makalah satu per satu.",
+    "Bandingkan pendekatan, temuan, dan keterbatasan studi terdahulu.",
+    "Rujuk Tabel I (matriks gap).",
+    "Akhiri dengan posisi penelitian ini terhadap gap.",
+  ] },
+  method: { name: "III. Research Method", points: [
+    "Desain penelitian dan alasannya.",
+    "Data: sumber, populasi atau sampel, cara pengumpulan (selaras dengan Open Data).",
+    "Variabel atau instrumen dan cara mengukurnya.",
+    "Teknik analisis serta alat atau perangkat lunak.",
+    "Etika penelitian bila melibatkan manusia.",
+    "Cukup rinci agar bisa direplikasi.",
+  ] },
+  results: { name: "IV. Expected Results", points: [
+    "Hasil yang diharapkan dan cara mengujinya (hipotesis, metrik, atau uji statistik).",
+    "Semua angka tetap placeholder sampai analisis selesai.",
+    "Setelah ada data: sajikan tabel atau gambar, lalu bahas dan bandingkan dengan studi terdahulu.",
+  ] },
+  conclusion: { name: "V. Conclusion", points: [
+    "Jawaban ringkas atas tujuan penelitian.",
+    "Kontribusi teoretis dan praktis.",
+    "Keterbatasan penelitian.",
+    "Arah riset lanjutan.",
+    "Tanpa sitasi baru dan tanpa informasi yang belum dibahas.",
+  ] },
+};
+const citesIn = (t) => [...new Set([...String(t || "").matchAll(CITE_RE)].map((m) => Number(m[1])))];
+const phIn = (t) => (String(t || "").match(PH_RE) || []).length;
+function autoChecks(key) {
+  const d = state.draft.data;
+  const out = [];
+  const okIf = (cond, okText, badText) => out.push([cond, cond ? okText : badText]);
+  if (key === "title") {
+    const w = words(state.me.title);
+    okIf(w > 0 && w <= 15, `${w} kata`, `${w} kata (patokan kerja ≤ 15)`);
+    okIf(!/:/.test(state.me.title), "Tanpa subjudul", "Ada tanda titik dua; kemungkinan subjudul");
+    okIf(!/[^\p{L}\p{N}\s,'’()&\-–]/u.test(state.me.title), "Tanpa simbol khusus", "Ada simbol atau karakter khusus");
+  } else if (key === "keywords") {
+    const n = state.draft.keywords.split(",").map((x) => x.trim()).filter(Boolean).length;
+    okIf(n >= 3 && n <= 6, `${n} istilah`, `${n} istilah (disarankan 3–6)`);
+  } else if (key === "abstract" && d) {
+    const w = words(d.abstract);
+    okIf(w >= 150 && w <= 250, `${w} kata`, `${w} kata (umumnya 150–250)`);
+    okIf(citesIn(d.abstract).length === 0, "Tanpa sitasi", "Ada sitasi; hapus dari abstrak");
+    const ph = phIn(d.abstract); if (ph) out.push([false, `${ph} placeholder perlu diisi`]);
+  } else if (d) {
+    const i = SECTION_KEYS.indexOf(key);
+    const text = (d.sections[i]?.paragraphs || []).join("\n");
+    const c = citesIn(text).length;
+    out.push([true, `${words(text)} kata, ${(d.sections[i]?.paragraphs || []).length} paragraf`]);
+    if (key === "intro") okIf(c >= 3, `${c} referensi dikutip`, `${c} referensi dikutip (disarankan ≥ 3)`);
+    if (key === "related") { const need = Math.ceil(state.lit.selected.length / 2); okIf(c >= need, `${c} dari ${state.lit.selected.length} referensi dikutip`, `${c} dari ${state.lit.selected.length} referensi dikutip (disarankan ≥ ${need})`); }
+    if (key === "conclusion") okIf(c === 0, "Tanpa sitasi baru", `${c} sitasi; hindari sitasi baru di kesimpulan`);
+    if (key === "results") okIf(!/\d+(?:[.,]\d+)?\s?%|p\s?[<=>]\s?0?[.,]\d/.test(text.replace(PH_RE, "")), "Tidak ada angka hasil karangan", "Ada angka hasil; pastikan berasal dari analisis sendiri");
+    const ph = phIn(text); if (ph) out.push([false, `${ph} placeholder perlu diisi`]);
+  }
+  return out;
+}
+function autoHtml(key) {
+  return autoChecks(key).map(([ok, t]) => `<li><span class="${ok ? "g-ok" : "g-warn"}" aria-hidden="true">${ok ? "✓" : "!"}</span><span>${esc(t)}</span></li>`).join("");
+}
+function guideHtml(key) {
+  const g = GUIDE[key];
+  const checks = state.draft.guideChecks[key] || [];
+  const name = key.length > 0 && SECTION_KEYS.includes(key) && state.draft.data
+    ? `${["I", "II", "III", "IV", "V"][SECTION_KEYS.indexOf(key)]}. ${state.draft.data.sections[SECTION_KEYS.indexOf(key)]?.heading || g.name}`
+    : g.name;
+  return `
+    <div class="guide-h">Ketentuan IEEE · ${esc(name)}</div>
+    <ul class="guide-list">${g.points.map((p, i) => `<li><input type="checkbox" id="g-${key}-${i}" data-act="guide-check" data-k="${key}" data-i="${i}" ${checks[i] ? "checked" : ""}><label for="g-${key}-${i}">${esc(p)}</label></li>`).join("")}</ul>
+    <ul class="guide-auto" id="auto-${key}">${autoHtml(key)}</ul>`;
+}
+function guided(key, fieldHtml) {
+  return `<div class="sec-grid"><div class="sec-field">${fieldHtml}</div><aside class="guide" aria-label="Ketentuan ${esc(GUIDE[key].name)}">${guideHtml(key)}</aside></div>`;
+}
+function updateGuide(key) { const el = $(`#auto-${key}`); if (el) el.innerHTML = autoHtml(key); }
+
+// ---------- Prompt AI (transparansi untuk pembelajaran) ----------
+function promptViewer(task) {
+  const p = state.prompts?.[task];
+  if (!p) return "";
+  return `<details class="prompt-view"><summary>Lihat prompt AI</summary>
+    <p class="hint">Inilah instruksi persis yang dikirim aplikasi ke AI untuk langkah ini. Perhatikan aturan yang mencegah AI mengarang referensi dan angka.</p>
+    <div><button type="button" class="btn ghost small" data-act="copy-prompt" data-task="${task}">Salin prompt</button></div>
+    <div class="prompt-label">Instruksi sistem</div><pre class="prompt-pre">${esc(p.system)}</pre>
+    <div class="prompt-label">Instruksi tugas</div><pre class="prompt-pre">${esc(p.user)}</pre>
+  </details>`;
+}
+
 function viewDraft() {
   const d = state.draft.data;
   const editor = d ? `
-    <label class="field"><span>${isId() ? "Abstrak" : "Abstract"}</span><textarea class="paper" data-act="edit-abstract" rows="7">${esc(d.abstract)}</textarea></label>
-    ${d.sections.map((s, i) => `<label class="field"><span>${i + 1}. ${esc(s.heading)}</span><textarea class="paper" data-act="edit-section" data-i="${i}" rows="${Math.min(18, 4 + s.paragraphs.join(" ").length / 110 | 0)}">${esc(s.paragraphs.join("\n\n"))}</textarea></label>`).join("")}
+    ${guided("abstract", `<label class="field"><span>${isId() ? "Abstrak" : "Abstract"}</span><textarea class="paper" data-act="edit-abstract" rows="9">${esc(d.abstract)}</textarea></label>`)}
+    ${d.sections.map((s, i) => guided(SECTION_KEYS[i] || "intro", `<label class="field"><span>${["I", "II", "III", "IV", "V"][i] || i + 1}. ${esc(s.heading)}</span><textarea class="paper" data-act="edit-section" data-i="${i}" rows="${Math.max(10, Math.min(22, 4 + s.paragraphs.join(" ").length / 110 | 0))}">${esc(s.paragraphs.join("\n\n"))}</textarea></label>`)).join("")}
     <p class="hint">Pisahkan paragraf dengan satu baris kosong. Sitasi ditulis [nomor] sesuai daftar referensi terpilih; penomoran IEEE dirapikan otomatis saat ekspor. Teks dalam [kurung siku] lain adalah placeholder yang wajib diisi dari data atau analisis tim.</p>` : "";
   const canDraft = state.me.title.trim() && state.gap.text.trim() && state.lit.selected.length >= 2;
   return `
@@ -582,8 +713,8 @@ function viewDraft() {
     ${titleCard()}
     <section class="card human">
       <h2>Keputusan tim: judul dan kata kunci final</h2>
-      <label class="field"><span>Judul final (boleh disunting)</span><input data-bind="me.title" value="${esc(state.me.title)}"></label>
-      <label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>
+      ${guided("title", `<label class="field"><span>Judul final (boleh disunting)</span><textarea data-bind="me.title" rows="3">${esc(state.me.title)}</textarea></label>`)}
+      ${guided("keywords", `<label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>`)}
     </section>
     <section class="card ai">
       <h2>AI menyusun draf</h2>
@@ -591,6 +722,7 @@ function viewDraft() {
       <div>${btn("make-draft", d ? "Susun ulang draf (suntingan akan tertimpa)" : "Susun draf paper", { disabled: !canDraft, busyLabel: "Menyusun draf… (20–60 detik)" })}</div>
       ${!canDraft ? '<div class="alert warn">Isi judul, gap yang dipilih, dan minimal dua referensi terlebih dahulu.</div>' : ""}
       ${errBox("make-draft")}
+      ${promptViewer("draft")}
       <div id="draftStats">${draftStats()}</div>
       ${editor}
     </section>
@@ -633,6 +765,7 @@ function contribCard() {
       <p class="hint" style="margin:0">Tuliskan peran setiap penulis (pisahkan dengan koma) memakai taksonomi CRediT, ditambah tugas spesifik bila perlu. Kalimat pernyataan disusun otomatis.</p>
       <div>${btn("suggest-contrib", "AI: sarankan pembagian peran", { kind: "ai", disabled: !authorsOk(), busyLabel: "Menyusun saran…" })}</div>
       ${errBox("suggest-contrib")}
+      ${promptViewer("contrib")}
       ${state.exp.contribAi ? '<div class="alert info">Ini saran AI berdasarkan prodi dan rencana metode. Sesuaikan dengan siapa yang benar-benar mengerjakan apa.</div>' : ""}
       <details><summary>Daftar 14 peran CRediT</summary><p class="hint" style="margin:4px 0 0">${esc(roles)}</p></details>
       <div class="grid2">${rows}</div>
@@ -845,6 +978,11 @@ const actions = {
     try { await navigator.clipboard.writeText(text); toast("Teks draf disalin."); }
     catch { toast("Gagal menyalin otomatis. Gunakan Unduh .docx."); }
   },
+  "copy-prompt": async (el) => {
+    const p = state.prompts?.[el.dataset.task]; if (!p) return;
+    try { await navigator.clipboard.writeText(`SYSTEM:\n${p.system}\n\nUSER:\n${p.user}`); toast("Prompt disalin."); }
+    catch { toast("Gagal menyalin otomatis; pilih teks prompt secara manual."); }
+  },
   "export-json": () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
@@ -855,7 +993,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -865,6 +1003,10 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); return; }
+  if (act === "guide-check") {
+    const k = el.dataset.k; const arr = state.draft.guideChecks[k] || (state.draft.guideChecks[k] = []);
+    arr[Number(el.dataset.i)] = el.checked; save(); return;
+  }
   if (act === "dept-select") {
     const a = state.me.authors[Number(el.dataset.i)];
     const d = DEPTS.find((x) => x.key === el.value);
@@ -919,14 +1061,16 @@ document.addEventListener("input", (e) => {
     save();
     if (el.dataset.live === "od") { const p = $("#odPreview"); if (p) p.innerHTML = renderRich(openDataStatement(), null); }
     if (el.dataset.bind === "me.title" || el.dataset.bind === "gap.text" || el.dataset.bind.startsWith("me.authors.")) refreshChrome();
+    if (el.dataset.bind === "me.title") updateGuide("title");
+    if (el.dataset.bind === "draft.keywords") updateGuide("keywords");
     return;
   }
   const act = el.dataset?.act;
   if (act === "aspect") { state.gap.matrix.aspects[Number(el.dataset.i)] = el.value; save(); return; }
-  if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); return; }
+  if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); updateGuide("abstract"); return; }
   if (act === "edit-section") {
     state.draft.data.sections[Number(el.dataset.i)].paragraphs = el.value.split(/\n\s*\n/).map((s) => s.replace(/\s*\n\s*/g, " ").trim()).filter(Boolean);
-    save(); updateStats(); return;
+    save(); updateStats(); updateGuide(SECTION_KEYS[Number(el.dataset.i)]); return;
   }
   if (act === "ack") { state.exp.ack = el.value; state.exp.ackEdited = true; save(); return; }
   if (act === "contrib") {
