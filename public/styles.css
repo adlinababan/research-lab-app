@@ -175,8 +175,10 @@ table.matrix td.c { text-align: center; width: 104px; }
 
 /* Tim penulis, lensa prodi, pernyataan */
 .authors { display: flex; flex-direction: column; gap: 10px; }
-.author-row { display: grid; grid-template-columns: 28px minmax(0, 1.4fr) minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
-.author-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--human); border: 2px solid var(--human); margin-bottom: 6px; }
+.author-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.author-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.author-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--human); border: 2px solid var(--human); margin-top: 20px; }
+.author-del { margin-top: 20px; }
 .author-row .field > span { font-size: 12px; }
 .lens-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .lens-btn { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
@@ -187,10 +189,12 @@ table.matrix td.c { text-align: center; width: 104px; }
 .statement mark { background: var(--hl); color: inherit; }
 select option:disabled { color: var(--muted); }
 @media (max-width: 1060px) {
-  .author-row { grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); }
+  .author-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
   .author-row { grid-template-columns: minmax(0, 1fr); }
+  .author-fields { grid-template-columns: minmax(0, 1fr); }
+  .author-n, .author-del { margin-top: 0; }
   .selected-list li { grid-template-columns: 36px minmax(0, 1fr); }
   .selected-list li select, .selected-list li .btn { grid-column: 2; }
 }

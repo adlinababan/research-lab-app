@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       lang: b.lang === "id" ? "id" : "en",
       title: clip(b.title, 300),
       authors: (b.authors || []).slice(0, 6).map((a) => ({
-        name: clip(a.name, 120), dept: clip(a.prodi || a.dept, 160), org: clip(a.org, 160), city: clip(a.city, 120), email: clip(a.email, 160),
+        name: clip(a.name, 120), dept: clip(a.dept || a.prodi, 160), faculty: clip(a.faculty, 160), org: clip(a.org, 160), city: clip(a.city, 120), email: clip(a.email, 160),
       })),
       abstract: clip(b.abstract, 3000).replace(/\[\d+\]/g, "").replace(/\s{2,}/g, " "),
       keywords: (b.keywords || []).slice(0, 8).map((k) => clip(k, 60)),

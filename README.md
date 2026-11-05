@@ -1,12 +1,12 @@
 # Research Lab — Dari Judul ke Draf Paper
 
-Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap paper ditulis oleh **tim 6 penulis dari 5 prodi** (Ilmu Komputer, Sistem Informasi, Bisnis Digital, Desain Komunikasi Visual, International Trade), dengan judul yang ditentukan sendiri oleh peserta. Lima langkah:
+Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap paper ditulis oleh **tim 1–6 penulis** lintas prodi (rumpun: Ilmu Komputer, Sistem Informasi, Bisnis Digital, Desain Komunikasi Visual, International Trade), dengan judul yang ditentukan sendiri oleh peserta. Lima langkah:
 
-1. **Peserta dan judul**: dua API key (OpenRouter dan OpenAlex) dengan tombol cek, judul penelitian sendiri, serta **6 penulis wajib** (nama dan prodi wajib; institusi, kota, email).
+1. **Peserta dan judul**: dua API key (OpenRouter dan OpenAlex) dengan tombol cek, judul penelitian sendiri, serta **1–6 penulis** (nama wajib; departemen, fakultas/school, universitas, kota, email, dan rumpun prodi). Blok penulis di .docx tercetak: Nama / *Departemen* / *Fakultas* / *Universitas* / Kota, negara / email.
 2. **Literatur lintas prodi**: AI menyarankan kata kunci umum dan **satu lensa pencarian per prodi**. Setiap referensi OpenAlex (ber-DOI, dengan bidang ilmunya) ditandai prodinya; minimal 3 referensi dari minimal 2 prodi.
 3. **Matriks gap**: AI menilai abstrak dari sudut pandang beberapa prodi tim dan mengusulkan gap di irisan antardisiplin.
 4. **Judul dan draf**: saran 3 judul yang lebih tajam + 5 kata kunci (judul awal tetap bisa dipakai), lalu draf yang **hanya mengutip referensi terpilih** dengan angka hasil sebagai `[placeholder]`.
-5. **Integritas dan ekspor**: **Open Contributionship** (peran CRediT per penulis, bisa disarankan AI lalu disunting), **Open Data** (tiga templat: dataset terbuka pihak lain, data sendiri dibagikan, atau data tidak dapat dibagikan), pernyataan penggunaan AI, checklist, lalu unduh **.docx template IEEE Conference A4** (dua baris × tiga penulis).
+5. **Integritas dan ekspor**: **Open Contributionship** (peran CRediT per penulis, bisa disarankan AI lalu disunting), **Open Data** (tiga templat: dataset terbuka pihak lain, data sendiri dibagikan, atau data tidak dapat dibagikan), pernyataan penggunaan AI, checklist, lalu unduh **.docx template IEEE Conference A4** (tiga penulis per baris).
 
 Model AI **dikunci** ke `google/gemini-2.5-flash-lite` (US$0,10 / US$0,40 per juta token) agar hasil dan biaya seragam; model lain hanya tampil sebagai informasi. Narasumber dapat menggantinya lewat env `OPENROUTER_MODEL`.
 

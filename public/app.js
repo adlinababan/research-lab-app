@@ -1,11 +1,11 @@
 // Research Lab — pelatihan riset berbantuan AI.
-// Prinsip: judul milik peserta, tim penulis multidisiplin (6 penulis, 5 prodi), AI hanya membantu.
+// Prinsip: judul milik peserta, tim penulis multidisiplin (1–6 penulis, 5 rumpun prodi), AI hanya membantu.
 // Referensi hanya dari OpenAlex; angka hasil tidak dikarang; kontribusi dan data dinyatakan terbuka.
 
 const PRODI = ["Ilmu Komputer", "Sistem Informasi", "Bisnis Digital", "Desain Komunikasi Visual", "International Trade"];
-const N_AUTHORS = 6;
+const MAX_AUTHORS = 6;
 const STEPS = [
-  { title: "Peserta dan judul", sub: "Judul, 6 penulis" },
+  { title: "Peserta dan judul", sub: "Judul, tim penulis" },
   { title: "Literatur", sub: "Lintas prodi, OpenAlex" },
   { title: "Matriks gap", sub: "Temukan celah riset" },
   { title: "Judul dan draf", sub: "Saran judul, draf paper" },
@@ -25,16 +25,16 @@ const CREDIT = {
   "writing—original draft": "penulisan—draf awal", "writing—review and editing": "penulisan—tinjauan dan penyuntingan",
 };
 
-const blankAuthor = () => ({ name: "", prodi: "", org: "", city: "", email: "" });
+const blankAuthor = () => ({ name: "", prodi: "", dept: "", faculty: "", org: "", city: "", email: "" });
 const defaultState = () => ({
   step: 0,
-  me: { lang: "en", title: "", aim: "", method: "", authors: Array.from({ length: N_AUTHORS }, blankAuthor) },
+  me: { lang: "en", title: "", aim: "", method: "", authors: [blankAuthor()] },
   lit: { query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
   draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [] },
   exp: {
     ack: "", ackEdited: false, checks: {},
-    contrib: Array.from({ length: N_AUTHORS }, () => ""), contribAi: false,
+    contrib: [""], contribAi: false,
     od: { type: "third", name: "", source: "", url: "", reason: "" },
   },
   meta: { model: "", label: "" },
@@ -51,12 +51,17 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const s = deepMerge(defaultState(), JSON.parse(raw));
-      while (s.me.authors.length < N_AUTHORS) s.me.authors.push(blankAuthor());
-      while (s.exp.contrib.length < N_AUTHORS) s.exp.contrib.push("");
+      s.me.authors = (s.me.authors.length ? s.me.authors : [blankAuthor()]).slice(0, MAX_AUTHORS).map((a) => ({ ...blankAuthor(), ...a }));
+      syncContrib(s);
       return s;
     }
   } catch {}
   return defaultState();
+}
+// Panjang isian kontribusi selalu mengikuti jumlah penulis.
+function syncContrib(s = state) {
+  const n = s.me.authors.length;
+  s.exp.contrib = Array.from({ length: n }, (_, i) => s.exp.contrib[i] || "");
 }
 function deepMerge(base, extra) {
   for (const k of Object.keys(extra || {})) {
@@ -110,9 +115,12 @@ function shortAuthors(a) {
   return a.length > 3 ? `${a.slice(0, 3).join(", ")}, dkk.` : a.join(", ");
 }
 const teamProdi = () => [...new Set(state.me.authors.map((a) => a.prodi).filter(Boolean))];
-const authorsReady = () => state.me.authors.filter((a) => a.name.trim() && a.prodi).length;
+const authorsNamed = () => state.me.authors.filter((a) => a.name.trim()).length;
+const authorsOk = () => state.me.authors.length >= 1 && authorsNamed() === state.me.authors.length;
 const litProdi = () => [...new Set(state.lit.selected.map((w) => w.prodi).filter(Boolean))];
 const ctx = () => ({ title: state.me.title, aim: state.me.aim, prodi: teamProdi() });
+// Untuk lensa pencarian: rumpun prodi tim, atau kelima rumpun bila belum diisi.
+const lensProdi = () => (teamProdi().length ? teamProdi() : PRODI);
 const paperPayload = (full) => state.lit.selected.map((w) => full
   ? { n: w.n, title: w.title, year: w.year, authors: w.authors, venue: w.venue, abstract: w.abstract, prodi: w.prodi || "" }
   : { n: w.n, title: w.title, year: w.year, abstract: w.abstract, prodi: w.prodi || "" });
@@ -233,7 +241,7 @@ function openDataStatement() {
 // ---------- status langkah ----------
 function stepDone(i) {
   switch (i) {
-    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsReady() === N_AUTHORS);
+    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk());
     case 1: return state.lit.selected.length >= 3 && litProdi().length >= 2;
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
@@ -349,14 +357,19 @@ function viewMe() {
   const rows = m.authors.map((a, i) => `
     <div class="author-row">
       <span class="author-n">${i + 1}</span>
-      <label class="field"><span>Nama lengkap *</span><input data-bind="me.authors.${i}.name" value="${esc(a.name)}" autocomplete="off"></label>
-      <label class="field"><span>Prodi *</span><select data-bind="me.authors.${i}.prodi"><option value="">Pilih prodi</option>${PRODI.map((p) => `<option ${a.prodi === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
-      <label class="field"><span>Institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}"></label>
-      <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="Jakarta, Indonesia"></label>
-      <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}"></label>
+      <div class="author-fields">
+        <label class="field"><span>Nama lengkap *</span><input data-bind="me.authors.${i}.name" value="${esc(a.name)}" autocomplete="off" placeholder="mis. Alwi Ihsan Nababan"></label>
+        <label class="field"><span>Departemen / prodi (tercetak)</span><input data-bind="me.authors.${i}.dept" value="${esc(a.dept)}" placeholder="mis. Department of Management"></label>
+        <label class="field"><span>Fakultas / school</span><input data-bind="me.authors.${i}.faculty" value="${esc(a.faculty)}" placeholder="mis. Faculty of Economics and Business"></label>
+        <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
+        <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
+        <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@kampus.ac.id"></label>
+        <label class="field"><span>Rumpun prodi (untuk referensi lintas prodi)</span><select data-bind="me.authors.${i}.prodi"><option value="">Pilih rumpun</option>${PRODI.map((p) => `<option ${a.prodi === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
+      </div>
+      ${m.authors.length > 1 ? `<button type="button" class="btn ghost small author-del" data-act="del-author" data-i="${i}" aria-label="Hapus penulis ${i + 1}">Hapus</button>` : "<span></span>"}
     </div>`).join("");
   return `
-    ${header(0, "Judul penelitian dan tim penulis", "Tulis judul Anda sendiri dan lengkapi enam penulis dari lima prodi. Aplikasi akan mencarikan referensi lintas prodi di OpenAlex, membantu menemukan gap, lalu menyusun draf paper.")}
+    ${header(0, "Judul penelitian dan tim penulis", "Tulis judul Anda sendiri dan isi tim penulis (1–6 orang). Aplikasi akan mencarikan referensi lintas prodi di OpenAlex, membantu menemukan gap, lalu menyusun draf paper.")}
     ${keyCard()}
     <section class="card human">
       <h2>Ide penelitian</h2>
@@ -372,12 +385,13 @@ function viewMe() {
     </section>
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h3>Tim penulis (wajib ${N_AUTHORS} penulis) <span class="counter" id="authorCount">${authorsReady()}/${N_AUTHORS}</span></h3>
-        <button type="button" class="btn ghost small" data-act="copy-org">Salin institusi dan kota penulis 1 ke semua</button>
+        <h3>Tim penulis <span class="counter" id="authorCount">${m.authors.length}/${MAX_AUTHORS}</span></h3>
+        ${m.authors.length > 1 ? '<button type="button" class="btn ghost small" data-act="copy-org">Salin fakultas, universitas, dan kota penulis 1 ke yang kosong</button>' : ""}
       </div>
-      <div id="prodiCover">${prodiChips(teamProdi(), "Prodi terwakili:")}</div>
-      <p class="hint" style="margin:0">Urutan di sini menjadi urutan penulis di template IEEE (dua baris, tiga penulis per baris). Usahakan kelima prodi terwakili.</p>
+      <div id="prodiCover">${prodiChips(teamProdi(), "Rumpun prodi terwakili:")}</div>
+      <p class="hint" style="margin:0">Maksimal ${MAX_AUTHORS} penulis. Urutan di sini menjadi urutan penulis di template IEEE (tiga penulis per baris). Baris yang kosong tidak dicetak.</p>
       <div class="authors">${rows}</div>
+      ${m.authors.length < MAX_AUTHORS ? `<div><button type="button" class="btn ghost small" data-act="add-author">+ Tambah penulis (${m.authors.length}/${MAX_AUTHORS})</button></div>` : ""}
     </section>
     <div id="meAlerts">${meAlerts()}</div>
     ${navRow("Lanjut cari literatur")}`;
@@ -387,8 +401,7 @@ function meAlerts() {
   if (!state.me.title.trim()) a.push("Isi judul penelitian untuk melanjutkan.");
   if (!hasAiKey()) a.push("Tempel API key OpenRouter di bagian atas halaman ini.");
   if (!hasOpenAlexKey()) a.push("Tempel API key OpenAlex di bagian atas halaman ini.");
-  if (authorsReady() < N_AUTHORS) a.push(`Lengkapi nama dan prodi untuk ${N_AUTHORS} penulis (${authorsReady()}/${N_AUTHORS} lengkap).`);
-  else if (teamProdi().length < PRODI.length) a.push(`Baru ${teamProdi().length} dari ${PRODI.length} prodi terwakili. Disarankan kelima prodi terwakili.`);
+  if (!authorsOk()) a.push(`Isi nama setiap penulis yang tercantum (${authorsNamed()}/${state.me.authors.length}), atau hapus baris yang tidak dipakai.`);
   return a.map((t) => `<div class="alert warn">${t}</div>`).join("");
 }
 
@@ -423,7 +436,7 @@ function viewLiterature() {
     ${header(1, "Literatur lintas prodi", `Judul: <b>${esc(state.me.title || "(belum diisi)")}</b>. Kumpulkan referensi dari sudut pandang beberapa prodi. Semua makalah berasal dari OpenAlex dan punya DOI.`)}
     <section class="card ai">
       <h2>AI menyarankan kata kunci per prodi</h2>
-      <p class="hint" style="margin:0">AI menerjemahkan judul menjadi kata kunci bahasa Inggris, umum dan per lensa prodi tim (${esc(teamProdi().join(", ") || "lengkapi prodi penulis di langkah 1")}).</p>
+      <p class="hint" style="margin:0">AI menerjemahkan judul menjadi kata kunci bahasa Inggris, umum dan per lensa prodi tim (${esc(lensProdi().join(", "))}).</p>
       <div>${btn("suggest-keywords", L.suggestions.length ? "Sarankan ulang" : "Sarankan kata kunci", { disabled: !state.me.title.trim() })}</div>
       ${errBox("suggest-keywords")}
       ${lenses}
@@ -556,7 +569,7 @@ function paperPreview() {
   if (!d) return '<div class="alert warn">Draf belum ada. Susun draf di langkah sebelumnya.</div>';
   const { order, map } = citationMap();
   const byN = new Map(state.lit.selected.map((w) => [w.n, w]));
-  const authors = state.me.authors.map((a) => `<div>${esc(a.name || "[Nama Penulis]")}<i>${esc(a.prodi || "[Prodi]")}</i><i>${esc(a.org || "[Institusi]")}</i>${esc(a.city || "[Kota], Indonesia")}<br>${esc(a.email || "[email atau ORCID]")}</div>`).join("");
+  const authors = state.me.authors.map((a) => `<div>${esc(a.name || "[Nama Penulis]")}${[a.dept, a.faculty, a.org].filter((x) => x.trim()).map((x) => `<i>${esc(x)}</i>`).join("")}${[a.city, a.email].filter((x) => x.trim()).map((x) => `${esc(x)}<br>`).join("")}</div>`).join("");
   const m = state.gap.matrix;
   const matrix = m?.rows?.length ? `<div class="tcap">${isId() ? "Tabel I. Matriks Gap Studi Terdahulu" : "Table I. Gap Matrix of Reviewed Studies"}</div><table><tr><th>Ref.</th>${m.aspects.map((a) => `<th>${esc(a)}</th>`).join("")}</tr>${m.rows.filter((r) => map.has(r.n)).sort((a, b) => map.get(a.n) - map.get(b.n)).map((r) => `<tr><td>[${map.get(r.n)}]</td>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : "";
   const ack = state.exp.ackEdited ? state.exp.ack : disclosure();
@@ -578,13 +591,13 @@ function paperPreview() {
 function contribCard() {
   const roles = Object.keys(CREDIT).map((r) => (isId() ? CREDIT[r] : r)).join("; ");
   const rows = state.me.authors.map((a, i) => `
-    <label class="field"><span>${i + 1}. ${esc(a.name || `Penulis ${i + 1}`)}${a.prodi ? ` · ${esc(a.prodi)}` : ""}</span>
+    <label class="field"><span>${i + 1}. ${esc(a.name || `Penulis ${i + 1}`)}${a.dept || a.prodi ? ` · ${esc(a.dept || a.prodi)}` : ""}</span>
       <input data-act="contrib" data-i="${i}" value="${esc(state.exp.contrib[i] || "")}" placeholder="${isId() ? "mis. konseptualisasi, analisis penjualan e-commerce, penulisan—draf awal" : "e.g. conceptualization, e-commerce sales analysis, writing—original draft"}"></label>`).join("");
   return `
     <section class="card human">
       <h2>Open Contributionship</h2>
       <p class="hint" style="margin:0">Tuliskan peran setiap penulis (pisahkan dengan koma) memakai taksonomi CRediT, ditambah tugas spesifik bila perlu. Kalimat pernyataan disusun otomatis.</p>
-      <div>${btn("suggest-contrib", "AI: sarankan pembagian peran", { kind: "ai", disabled: authorsReady() < N_AUTHORS, busyLabel: "Menyusun saran…" })}</div>
+      <div>${btn("suggest-contrib", "AI: sarankan pembagian peran", { kind: "ai", disabled: !authorsOk(), busyLabel: "Menyusun saran…" })}</div>
       ${errBox("suggest-contrib")}
       ${state.exp.contribAi ? '<div class="alert info">Ini saran AI berdasarkan prodi dan rencana metode. Sesuaikan dengan siapa yang benar-benar mengerjakan apa.</div>' : ""}
       <details><summary>Daftar 14 peran CRediT</summary><p class="hint" style="margin:4px 0 0">${esc(roles)}</p></details>
@@ -634,7 +647,7 @@ function viewExport() {
     [order.length > 0, `${order.length} referensi dari OpenAlex, semuanya ber-DOI, mewakili ${refProdi} prodi.`],
     [true, "Sitasi di luar daftar referensi terpilih sudah dibuang otomatis."],
     [Boolean(ack.trim()), "Pernyataan penggunaan AI ada di bagian Acknowledgment (sesuai kebijakan IEEE)."],
-    [contribFilled === N_AUTHORS, `Open Contributionship terisi untuk ${contribFilled} dari ${N_AUTHORS} penulis.`],
+    [contribFilled === state.me.authors.length, `Open Contributionship terisi untuk ${contribFilled} dari ${state.me.authors.length} penulis.`],
     [odPh === 0, odPh ? `Pernyataan Open Data masih memiliki ${odPh} placeholder.` : "Pernyataan Open Data lengkap."],
     [ph === 0, ph ? `${ph} placeholder di isi naskah masih perlu diisi setelah analisis (ditandai kuning di .docx).` : "Tidak ada placeholder tersisa di isi naskah."],
   ];
@@ -692,13 +705,22 @@ const actions = {
     const r = await api("/api/check", {});
     keyCheck = { ai: r.ai || null, openalex: r.openalex || null };
   }),
+  "add-author": () => {
+    if (state.me.authors.length < MAX_AUTHORS) state.me.authors.push(blankAuthor());
+    syncContrib(); save(); render();
+  },
+  "del-author": (el) => {
+    const i = Number(el.dataset.i);
+    state.me.authors.splice(i, 1); state.exp.contrib.splice(i, 1);
+    syncContrib(); save(); render();
+  },
   "copy-org": () => {
     const a0 = state.me.authors[0];
-    state.me.authors.forEach((a, i) => { if (i > 0) { if (!a.org) a.org = a0.org; if (!a.city) a.city = a0.city; } });
-    save(); render(); toast("Institusi dan kota disalin ke penulis yang masih kosong.");
+    state.me.authors.forEach((a, i) => { if (i > 0) { for (const k of ["faculty", "org", "city"]) if (!a[k]) a[k] = a0[k]; } });
+    save(); render(); toast("Fakultas, universitas, dan kota disalin ke penulis yang masih kosong.");
   },
   "suggest-keywords": () => runTask("suggest-keywords", async () => {
-    const r = await api("/api/llm", { task: "keywords", ...ctx() });
+    const r = await api("/api/llm", { task: "keywords", ...ctx(), prodi: lensProdi() });
     state.lit.suggestions = r.result.queries; state.lit.perProdi = r.result.perProdi || []; state.lit.concepts = r.result.concepts; noteModel(r);
     if (!state.lit.query && r.result.queries[0]) state.lit.query = r.result.queries[0];
   }),
@@ -747,7 +769,7 @@ const actions = {
   "suggest-contrib": () => {
     if (state.exp.contrib.some((c) => c.trim()) && !window.confirm("Ganti isian kontribusi dengan saran AI?")) return;
     runTask("suggest-contrib", async () => {
-      const r = await api("/api/llm", { task: "contrib", title: state.me.title, aim: state.me.aim, method: state.me.method, lang: state.me.lang, authors: state.me.authors.map((a) => ({ name: a.name, prodi: a.prodi })) });
+      const r = await api("/api/llm", { task: "contrib", title: state.me.title, aim: state.me.aim, method: state.me.method, lang: state.me.lang, authors: state.me.authors.map((a) => ({ name: a.name, prodi: [a.dept, a.prodi].filter(Boolean).join(" / ") })) });
       state.exp.contrib = state.me.authors.map((a, i) => {
         const s = r.result.authors[i] || { roles: [], tasks: [] };
         const roles = s.roles.map((x) => (isId() ? CREDIT[x] || x : x));
@@ -779,7 +801,7 @@ const actions = {
     const strip = (t) => String(t).replace(/\[(\d+)\]/g, (m, n) => (map.has(Number(n)) ? `[${map.get(Number(n))}]` : ""));
     const tmp = document.createElement("div");
     const refs = order.map((n, i) => { tmp.innerHTML = ieeeRefHtml(byN.get(n)); return `[${i + 1}] ${tmp.textContent}`; });
-    const text = [state.me.title, "", state.me.authors.map((a) => `${a.name} (${a.prodi}, ${a.org})`).join("; "), "",
+    const text = [state.me.title, "", state.me.authors.map((a) => [a.name, a.dept, a.faculty, a.org, a.city, a.email].filter((x) => x.trim()).join(", ")).join("\n"), "",
       `Abstract—${d.abstract}`, `Keywords—${state.draft.keywords}`, "",
       ...d.sections.flatMap((s, i) => [`${["I", "II", "III", "IV", "V"][i]}. ${s.heading.toUpperCase()}`, ...s.paragraphs.map(strip), ""]),
       "ACKNOWLEDGMENT", state.exp.ackEdited ? state.exp.ack : disclosure(), "",
@@ -887,8 +909,7 @@ function refreshChrome() {
   const next = document.querySelector(`.nav-row [data-i="${state.step + 1}"]`);
   if (next) next.disabled = !stepDone(state.step);
   const al = $("#meAlerts"); if (al) al.innerHTML = meAlerts();
-  const ac = $("#authorCount"); if (ac) ac.textContent = `${authorsReady()}/${N_AUTHORS}`;
-  const pc = $("#prodiCover"); if (pc) pc.innerHTML = prodiChips(teamProdi(), "Prodi terwakili:");
+  const pc = $("#prodiCover"); if (pc) pc.innerHTML = prodiChips(teamProdi(), "Rumpun prodi terwakili:");
 }
 
 // ---------- kode akses & status ----------
