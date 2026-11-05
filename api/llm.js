@@ -4,7 +4,7 @@ import { keywordsPrompt, cleanKeywords, gapPrompt, cleanGap, titlesPrompt, clean
 import { mockLlm } from "../lib/mock.js";
 
 const TASKS = {
-  keywords: { build: keywordsPrompt, clean: (j) => cleanKeywords(j), temperature: 0.3, maxTokens: 800 },
+  keywords: { build: keywordsPrompt, clean: (j, b) => cleanKeywords(j, b), temperature: 0.3, maxTokens: 800 },
   gap: { build: gapPrompt, clean: (j, b) => cleanGap(j, (b.papers || []).map((w) => Number(w.n))), temperature: 0.2, maxTokens: 4000 },
   titles: { build: titlesPrompt, clean: (j) => cleanTitles(j), temperature: 0.6, maxTokens: 1200 },
   contrib: { build: contribPrompt, clean: (j, b) => cleanContrib(j, b), temperature: 0.3, maxTokens: 1500 },

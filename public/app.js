@@ -128,8 +128,9 @@ const authorsNamed = () => state.me.authors.filter((a) => a.name.trim()).length;
 const authorsOk = () => state.me.authors.length >= 1 && authorsNamed() === state.me.authors.length;
 const litProdi = () => [...new Set(state.lit.selected.map((w) => w.prodi).filter(Boolean))];
 const ctx = () => ({ title: state.me.title, aim: state.me.aim, prodi: teamProdi() });
-// Untuk lensa pencarian: rumpun prodi tim, atau kelima rumpun bila belum diisi.
-const lensProdi = () => (teamProdi().length ? teamProdi() : PRODI);
+// Literatur hanya berdasar rumpun prodi yang terwakili di tim penulis.
+const lensProdi = () => teamProdi();
+const needLitProdi = () => Math.min(2, Math.max(1, teamProdi().length));
 const paperPayload = (full) => state.lit.selected.map((w) => full
   ? { n: w.n, title: w.title, year: w.year, authors: w.authors, venue: w.venue, abstract: w.abstract, prodi: w.prodi || "" }
   : { n: w.n, title: w.title, year: w.year, authors: (w.authors || []).slice(0, 3), abstract: w.abstract, prodi: w.prodi || "" });
@@ -138,6 +139,13 @@ function joinList(items) {
   if (items.length <= 1) return items[0] || "";
   if (items.length === 2) return `${items[0]} ${and} ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, ${and} ${items[items.length - 1]}`;
+}
+// Cakupan rumpun tim pada referensi terpilih (hanya rumpun yang terwakili di tim).
+function teamChips(present) {
+  const team = teamProdi();
+  return `<div class="row" style="align-items:center;gap:6px"><span class="hint">Rumpun tim pada referensi:</span>${team.map((p) => present.includes(p)
+    ? `<span class="tag" style="background:var(--ok-tint);color:var(--ok)">✓ ${esc(p)}</span>`
+    : `<span class="tag muted">${esc(p)}</span>`).join("")}</div>`;
 }
 function prodiChips(present, label) {
   return `<div class="row" style="align-items:center;gap:6px"><span class="hint">${label}</span>${PRODI.map((p) => present.includes(p)
@@ -250,8 +258,8 @@ function openDataStatement() {
 // ---------- status langkah ----------
 function stepDone(i) {
   switch (i) {
-    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk());
-    case 1: return state.lit.selected.length >= 3 && litProdi().length >= 2;
+    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk() && teamProdi().length >= 1);
+    case 1: return state.lit.selected.length >= 3 && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
     default: return false;
@@ -410,13 +418,16 @@ function meAlerts() {
   if (!state.me.title.trim()) a.push("Isi judul penelitian untuk melanjutkan.");
   if (!hasAiKey()) a.push("Tempel API key OpenRouter di bagian atas halaman ini.");
   if (!hasOpenAlexKey()) a.push("Tempel API key OpenAlex di bagian atas halaman ini.");
+  if (!teamProdi().length) a.push("Pilih rumpun prodi minimal untuk satu penulis. Saran literatur hanya diambil dari rumpun prodi yang terwakili.");
   if (!authorsOk()) a.push(`Isi nama setiap penulis yang tercantum (${authorsNamed()}/${state.me.authors.length}), atau hapus baris yang tidak dipakai.`);
   return a.map((t) => `<div class="alert warn">${t}</div>`).join("");
 }
 
 // ---------- Langkah 2 ----------
-function prodiSelect(act, value, extra = "") {
-  return `<select data-act="${act}" ${extra}><option value="">Belum ditandai</option>${PRODI.map((p) => `<option ${value === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`;
+function prodiSelect(act, value, extra = "", emptyLabel = "Belum ditandai") {
+  const opts = teamProdi().length ? teamProdi() : PRODI;
+  const list = value && !opts.includes(value) ? [...opts, value] : opts;
+  return `<select data-act="${act}" ${extra}><option value="">${emptyLabel}</option>${list.map((p) => `<option ${value === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`;
 }
 function viewLiterature() {
   const L = state.lit;
@@ -437,16 +448,16 @@ function viewLiterature() {
       ${prodiSelect("tag-prodi", w.prodi, `data-id="${esc(w.id)}" aria-label="Prodi untuk referensi ${w.n}"`)}
       <button type="button" class="btn ghost small" data-act="remove-work" data-id="${esc(w.id)}">Hapus</button></li>`).join("");
   const general = L.suggestions.length
-    ? `<div class="row" style="align-items:center;gap:8px"><span class="hint">Umum:</span>${L.suggestions.map((q, i) => `<button type="button" class="btn ghost small" data-act="use-query" data-i="${i}">${esc(q)}</button>`).join("")}</div>` : "";
+    ? `<div class="row" style="align-items:center;gap:8px"><span class="hint">${lensProdi().length > 1 ? `Irisan ${esc(lensProdi().join(" × "))}:` : "Umum:"}</span>${L.suggestions.map((q, i) => `<button type="button" class="btn ghost small" data-act="use-query" data-i="${i}">${esc(q)}</button>`).join("")}</div>` : "";
   const lenses = L.perProdi.length
     ? `<div class="lens-list">${L.perProdi.map((x, i) => `<button type="button" class="lens-btn" data-act="use-lens" data-i="${i}"><b>${esc(x.prodi)}</b><span>${esc(x.query)}</span></button>`).join("")}</div>
        <p class="hint" style="margin:0">Klik satu lensa untuk mencari. Makalah yang dipilih dari pencarian itu otomatis ditandai dengan prodi lensanya.</p>` : "";
   return `
     ${header(1, "Literatur lintas prodi", `Judul: <b>${esc(state.me.title || "(belum diisi)")}</b>. Kumpulkan referensi dari sudut pandang beberapa prodi. Semua makalah berasal dari OpenAlex dan punya DOI.`)}
     <section class="card ai">
-      <h2>AI menyarankan kata kunci per prodi</h2>
-      <p class="hint" style="margin:0">AI menerjemahkan judul menjadi kata kunci bahasa Inggris, umum dan per lensa prodi tim (${esc(lensProdi().join(", "))}).</p>
-      <div>${btn("suggest-keywords", L.suggestions.length ? "Sarankan ulang" : "Sarankan kata kunci", { disabled: !state.me.title.trim() })}</div>
+      <h2>AI menyarankan kata kunci sesuai rumpun tim</h2>
+      <p class="hint" style="margin:0">Saran hanya berdasar rumpun prodi yang terwakili di tim penulis: <b>${esc(lensProdi().join(" × ") || "(belum ada, isi di langkah 1)")}</b>. ${lensProdi().length > 1 ? "Kata kunci <i>irisan</i> menggabungkan semua rumpun tersebut; lensa per rumpun tetap dikaitkan dengan rumpun lainnya." : "Kata kunci tetap di dalam rumpun tersebut."}</p>
+      <div>${btn("suggest-keywords", L.suggestions.length ? "Sarankan ulang" : "Sarankan kata kunci", { disabled: !state.me.title.trim() || !lensProdi().length })}</div>
       ${errBox("suggest-keywords")}
       ${lenses}
       ${general}
@@ -455,7 +466,7 @@ function viewLiterature() {
       <h2>Pencarian</h2>
       <div class="row">
         <label class="field" style="flex:3 1 260px"><span>Kata kunci (bahasa Inggris)</span><input data-bind="lit.query" value="${esc(L.query)}" placeholder="mis. batik export consumer perception"></label>
-        <label class="field" style="flex:1 1 170px"><span>Lensa prodi</span>${prodiSelect("lens", L.lens).replace("Belum ditandai", "Umum")}</label>
+        <label class="field" style="flex:1 1 170px"><span>Lensa prodi</span>${prodiSelect("lens", L.lens, "", "Irisan semua rumpun")}</label>
         <label class="field" style="flex:1 1 100px"><span>Terbit sejak</span><input type="number" min="1950" max="2100" data-bind="lit.yearFrom" value="${esc(L.yearFrom)}"></label>
         <label class="field" style="flex:1 1 150px"><span>Urutkan</span><select data-bind="lit.sort"><option value="relevance" ${L.sort === "relevance" ? "selected" : ""}>Paling relevan</option><option value="cited" ${L.sort === "cited" ? "selected" : ""}>Paling banyak dikutip</option></select></label>
         ${btn("search", "Cari di OpenAlex", { kind: "primary", busyLabel: "Mencari…" })}
@@ -466,9 +477,9 @@ function viewLiterature() {
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3>Referensi terpilih <span class="counter">${L.selected.length}</span> / ${MAX_PAPERS}</h3>
-        <span class="hint">Minimal 3 referensi dari minimal 2 prodi; disarankan 5–10 dari 3 prodi atau lebih.</span>
+        <span class="hint">Minimal 3 referensi${needLitProdi() > 1 ? ` dari minimal ${needLitProdi()} rumpun tim` : ""}; disarankan 5–10 referensi yang mencakup semua rumpun tim.</span>
       </div>
-      ${prodiChips(litProdi(), "Prodi pada referensi:")}
+      ${teamChips(litProdi())}
       ${L.selected.length ? `<ul class="selected-list">${sel}</ul>` : '<p class="hint">Belum ada. Centang makalah dari hasil pencarian.</p>'}
     </section>
     ${L.searched ? `<section class="card"><h3>Hasil pencarian${L.lastLens ? ` · lensa ${esc(L.lastLens)}` : ""} <span class="hint">(${L.results.length} ditampilkan dari ±${Number(L.total).toLocaleString("id-ID")})</span></h3><div class="results">${list || '<p class="hint">Tidak ada hasil. Coba kata kunci lain.</p>'}</div></section>` : ""}
@@ -730,13 +741,14 @@ const actions = {
   },
   "suggest-keywords": () => runTask("suggest-keywords", async () => {
     const r = await api("/api/llm", { task: "keywords", ...ctx(), prodi: lensProdi() });
+    // Hanya lensa untuk rumpun yang terwakili di tim.
     state.lit.suggestions = r.result.queries; state.lit.perProdi = r.result.perProdi || []; state.lit.concepts = r.result.concepts; noteModel(r);
     if (!state.lit.query && r.result.queries[0]) state.lit.query = r.result.queries[0];
   }),
   "use-query": (el) => runTask("search", () => doSearch(state.lit.suggestions[Number(el.dataset.i)], "")),
   "use-lens": (el) => {
     const x = state.lit.perProdi[Number(el.dataset.i)];
-    runTask("search", () => doSearch(x.query, PRODI.includes(x.prodi) ? x.prodi : ""));
+    runTask("search", () => doSearch(x.query, teamProdi().includes(x.prodi) ? x.prodi : ""));
   },
   search: () => runTask("search", () => doSearch(state.lit.query)),
   "remove-work": (el) => { state.lit.selected = state.lit.selected.filter((w) => w.id !== el.dataset.id); save(); render(); },
