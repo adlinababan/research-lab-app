@@ -19,6 +19,7 @@ const STEPS = [
 const MAX_PAPERS = 15;
 const STORE_KEY = "research-lab-state-v1";
 const CODE_KEY = "research-lab-access";
+const KEYS_KEY = "research-lab-keys"; // API key pengguna: hanya di browser ini, tidak ikut ekspor .json
 
 const blankAuthor = () => ({ name: "", dept: "", org: "", city: "", email: "" });
 const defaultState = () => ({
@@ -53,11 +54,25 @@ function deepMerge(base, extra) {
   return base;
 }
 let saveTimer = null;
+function flushSave() { clearTimeout(saveTimer); try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }, 250);
+  saveTimer = setTimeout(flushSave, 250);
 }
+window.addEventListener("pagehide", flushSave);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
 function accessCode() { try { return localStorage.getItem(CODE_KEY) || ""; } catch { return ""; } }
+let memKeys = { gemini: "", openalex: "" };
+function getKeys() {
+  try { const k = JSON.parse(localStorage.getItem(KEYS_KEY) || "null"); if (k) return { gemini: k.gemini || "", openalex: k.openalex || "" }; } catch {}
+  return memKeys;
+}
+function setKeys(k) {
+  memKeys = { gemini: (k.gemini || "").trim(), openalex: (k.openalex || "").trim() };
+  try { localStorage.setItem(KEYS_KEY, JSON.stringify(memKeys)); } catch {}
+}
+function clearKeys() { memKeys = { gemini: "", openalex: "" }; try { localStorage.removeItem(KEYS_KEY); } catch {} }
+function hasAiKey() { return !config || config.mock || config.llm?.configured || Boolean(getKeys().gemini); }
 
 // ---------- utilitas ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -87,7 +102,13 @@ function shortAuthors(a) {
 async function api(path, body, { raw = false } = {}) {
   const resp = await fetch(path, {
     method: body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "x-access-code": accessCode() },
+    headers: (() => {
+      const h = { "Content-Type": "application/json", "x-access-code": accessCode() };
+      const k = getKeys();
+      if (k.gemini) h["x-gemini-key"] = k.gemini;
+      if (k.openalex) h["x-openalex-key"] = k.openalex;
+      return h;
+    })(),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (resp.status === 401) { showAccess(true); throw new Error("Kode akses diperlukan."); }
@@ -154,7 +175,7 @@ function disclosure() {
 // ---------- status langkah ----------
 function stepDone(i) {
   switch (i) {
-    case 0: return Boolean(state.group.theme.trim() && allProdi().length >= 2);
+    case 0: return Boolean(state.group.theme.trim() && allProdi().length >= 2 && hasAiKey());
     case 1: return Boolean(state.q.question.trim());
     case 2: return state.lit.selected.length >= 3;
     case 3: return Boolean(state.gap.text.trim());
@@ -196,6 +217,37 @@ function navRow(prevOk = true, nextLabel = "Lanjut", nextOk = true) {
   </div>`;
 }
 
+function keyCard() {
+  const k = getKeys();
+  const serverHasKey = config?.llm?.configured && !config?.mock;
+  const required = !serverHasKey && !config?.mock;
+  return keyCardHtml(k, required, keyStateTag(k, required));
+}
+function keyStateTag(k, required) {
+  return k.gemini ? '<span class="tag" style="background:var(--ok-tint);color:var(--ok)">Key tersimpan di perangkat ini</span>' : required ? '<span class="tag" style="background:var(--err-tint);color:var(--err)">Wajib diisi</span>' : '<span class="tag muted">Opsional</span>';
+}
+function keyCardHtml(k, required, tag) {
+  return `
+    <section class="card" id="keyCard">
+      <div class="row" style="justify-content:space-between;align-items:center"><h3>API key Gemini kelompok</h3><span id="keyState">${tag}</span></div>
+      <p class="hint" style="margin:0">${required ? "Setiap kelompok memakai API key Gemini gratis miliknya sendiri, jadi kuota tidak saling berebut." : "Server sudah punya key. Isi key sendiri bila ingin memakai kuota kelompok sendiri."}</p>
+      <details ${k.gemini ? "" : "open"}><summary>Cara membuat key (2 menit)</summary>
+        <ol style="margin:6px 0 0;padding-left:20px;font-size:14px">
+          <li>Buka <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> dan masuk dengan akun Google.</li>
+          <li>Klik <b>Create API key</b>, lalu salin key yang diawali <code>AIza…</code>.</li>
+          <li>Tempel di kolom di bawah.</li>
+        </ol></details>
+      <div class="grid2">
+        <label class="field"><span>API key Gemini</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-gemini" value="${esc(k.gemini)}" placeholder="AIza…"></label>
+        <label class="field"><span>API key OpenAlex (opsional)</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="Kosongkan bila tidak punya"></label>
+      </div>
+      <div class="row" style="align-items:center">
+        <button type="button" class="btn ghost small" data-act="clear-keys" ${k.gemini || k.openalex ? "" : "disabled"}>Hapus key dari perangkat ini</button>
+        <span class="hint">Key hanya disimpan di browser ini dan diteruskan ke Google atau OpenAlex saat dipakai; server tidak menyimpannya. Hapus key setelah sesi bila memakai komputer bersama.</span>
+      </div>
+    </section>`;
+}
+
 function viewGroup() {
   const g = state.group;
   const themeOpts = Object.entries(THEMES).map(([k, v]) => `<option value="${k}" ${g.num === k ? "selected" : ""}>Kelompok ${k} · ${esc(v)}</option>`).join("") + `<option value="lain" ${g.num === "lain" ? "selected" : ""}>Tema lain (tulis sendiri)</option>`;
@@ -210,6 +262,7 @@ function viewGroup() {
     </div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:4px 0">');
   return `
     ${header(0, "Kelompok dan tema", "Isi identitas kelompok. Pertanyaan riset nanti wajib menggabungkan minimal dua sudut pandang prodi.")}
+    ${keyCard()}
     <section class="card human">
       <h2>Keputusan kelompok</h2>
       <label class="field"><span>Nomor kelompok</span><select data-act="theme-select">${themeOpts}</select></label>
@@ -233,6 +286,7 @@ function viewGroup() {
       ${g.authors.length < 3 ? `<div><button type="button" class="btn ghost small" data-act="add-author">+ Tambah penulis</button></div>` : ""}
     </section>
     ${allProdi().length < 2 ? `<div class="alert warn">Pilih minimal dua prodi agar AI bisa mengusulkan pertanyaan lintas disiplin.</div>` : ""}
+    ${!hasAiKey() ? `<div class="alert warn">Isi API key Gemini kelompok di bagian atas halaman ini untuk melanjutkan.</div>` : ""}
     ${navRow(true, "Lanjut ke pertanyaan riset", stepDone(0))}`;
 }
 
@@ -463,6 +517,7 @@ async function runTask(key, fn) {
 
 const actions = {
   goto: (el) => goto(Number(el.dataset.i)),
+  "clear-keys": () => { clearKeys(); updateChip(); render(); toast("Key dihapus dari perangkat ini."); },
   "add-author": () => { if (state.group.authors.length < 3) state.group.authors.push(blankAuthor()); save(); render(); },
   "del-author": (el) => { state.group.authors.splice(Number(el.dataset.i), 1); save(); render(); },
   "ask-questions": () => runTask("ask-questions", async () => {
@@ -553,7 +608,7 @@ document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled) return;
   const act = el.dataset.act;
-  if (["choose-q", "toggle-work", "choose-gap", "choose-title", "check", "prodi", "lang", "theme-select", "aspect", "edit-abstract", "edit-section", "ack"].includes(act)) return;
+  if (["choose-q", "toggle-work", "choose-gap", "choose-title", "check", "prodi", "lang", "theme-select", "aspect", "edit-abstract", "edit-section", "ack", "key-gemini", "key-openalex"].includes(act)) return;
   if (actions[act]) { e.preventDefault(); actions[act](el); }
 });
 document.addEventListener("change", (e) => {
@@ -609,6 +664,15 @@ document.addEventListener("input", (e) => {
     save(); updateStats(); return;
   }
   if (act === "ack") { state.exp.ack = el.value; state.exp.ackEdited = true; save(); return; }
+  if (act === "key-gemini" || act === "key-openalex") {
+    const k = getKeys();
+    k[act === "key-gemini" ? "gemini" : "openalex"] = el.value.trim();
+    setKeys(k); updateChip(); refreshChrome();
+    const tagEl = $("#keyState");
+    if (tagEl) tagEl.innerHTML = keyStateTag(k, !(config?.llm?.configured) && !config?.mock);
+    const clr = document.querySelector('[data-act="clear-keys"]'); if (clr) clr.disabled = !(k.gemini || k.openalex);
+    return;
+  }
 });
 function updateStats() { const s = $("#draftStats"); if (s) s.innerHTML = draftStats(); }
 // Perbarui status langkah & tombol Lanjut tanpa merender ulang kolom yang sedang diketik.
@@ -634,19 +698,26 @@ $("#accessForm").addEventListener("submit", async (e) => {
   $("#accessError").hidden = true; showAccess(false); toast("Kode diterima.");
 });
 $("#resetBtn").addEventListener("click", () => {
-  if (!window.confirm("Mulai sesi baru? Semua isian di perangkat ini akan dihapus. Unduh data sesi (.json) dulu bila perlu.")) return;
-  state = defaultState(); Object.keys(errors).forEach((k) => delete errors[k]); save(); render();
+  if (!window.confirm("Mulai sesi baru? Semua isian dan API key di perangkat ini akan dihapus. Unduh data sesi (.json) dulu bila perlu.")) return;
+  state = defaultState(); clearKeys(); updateChip(); Object.keys(errors).forEach((k) => delete errors[k]); save(); render();
 });
+
+function updateChip() {
+  const chip = $("#statusChip");
+  if (!config) return;
+  if (config.mock) { chip.textContent = "Mode uji · data contoh"; chip.className = "chip warn"; }
+  else if (getKeys().gemini) { chip.textContent = "Gemini (key kelompok) · OpenAlex"; chip.className = "chip ok"; }
+  else if (config.llm.configured) { chip.textContent = `${config.llm.label} · OpenAlex`; chip.className = "chip ok"; }
+  else { chip.textContent = "Isi API key Gemini"; chip.className = "chip err"; }
+}
 
 async function init() {
   render();
   try {
     config = await api("/api/config");
     if (config.eventName) $("#eventName").textContent = config.eventName;
-    const chip = $("#statusChip");
-    if (config.mock) { chip.textContent = "Mode uji · data contoh"; chip.className = "chip warn"; }
-    else if (!config.llm.configured) { chip.textContent = "AI belum dikonfigurasi"; chip.className = "chip err"; }
-    else { chip.textContent = `${config.llm.label} · OpenAlex`; chip.className = "chip ok"; }
+    updateChip();
+    render();
     if (config.accessRequired && !accessCode()) showAccess(true);
   } catch {
     const chip = $("#statusChip"); chip.textContent = "Server tidak terjangkau"; chip.className = "chip err";

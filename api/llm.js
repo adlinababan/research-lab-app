@@ -1,4 +1,4 @@
-import { readJson, sendJson, sendError, checkAccess, rateLimit, isMock } from "../lib/http.js";
+import { readJson, sendJson, sendError, checkAccess, rateLimit, isMock, userKeys } from "../lib/http.js";
 import { askJson, providerInfo } from "../lib/llm.js";
 import {
   questionsPrompt, cleanQuestions, gapPrompt, cleanGap,
@@ -16,7 +16,7 @@ const TASKS = {
 export default async function handler(req, res) {
   if (req.method !== "POST") return sendError(res, 405, "Gunakan POST.");
   if (!checkAccess(req, res)) return;
-  if (!rateLimit(req, res, { limit: 20 })) return;
+  if (!rateLimit(req, res, { limit: 40 })) return;
   const body = await readJson(req);
   const t = TASKS[body.task];
   if (!t) return sendError(res, 400, "Tugas AI tidak dikenal.");
@@ -28,8 +28,9 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { result: t.clean(mockLlm(body.task, body), body), model: "mode uji", mock: true });
     }
     const { system, user } = t.build(body);
-    const { json, model } = await askJson(system, user, { temperature: t.temperature });
-    sendJson(res, 200, { result: t.clean(json, body), model, label: providerInfo().label });
+    const userKey = userKeys(req).gemini;
+    const { json, model } = await askJson(system, user, { temperature: t.temperature, userKey });
+    sendJson(res, 200, { result: t.clean(json, body), model, label: userKey ? "Google Gemini API" : providerInfo().label });
   } catch (e) {
     sendError(res, e.status || 500, e.message || "Permintaan ke AI gagal.");
   }

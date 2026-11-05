@@ -13,14 +13,26 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 
 ---
 
-## A. Siapkan dua API key (gratis)
+## A. API key: dua cara
+
+**Cara 1 — setiap kelompok memakai API key sendiri (disarankan untuk 10–20+ pengguna).**
+Tidak perlu mengisi apa pun di Vercel. Di langkah 1 aplikasi, setiap kelompok/pengguna menempelkan API key Gemini gratis miliknya:
+
+1. Buka https://aistudio.google.com/apikey, masuk dengan akun Google.
+2. Klik **Create API key**, salin key yang diawali `AIza…`.
+3. Tempel di kolom *API key Gemini kelompok* pada aplikasi.
+
+Kuota setiap key terpisah, jadi 20 pengguna tidak berebut satu kuota. Key hanya disimpan di browser pengguna (localStorage), dikirim ke server per permintaan untuk diteruskan ke Google, dan **tidak disimpan atau dicatat** di server. Tombol *Hapus key dari perangkat ini* dan *Mulai baru* menghapusnya. Key OpenAlex bersifat opsional: tanpa key, pencarian tetap berjalan dengan kuota gratis yang lebih kecil.
+
+**Cara 2 — satu key milik narasumber di server.**
+Isi `GEMINI_API_KEY` (dan `OPENALEX_API_KEY`) di Environment Variables Vercel. Pengguna tidak perlu memasukkan key, tetapi semua berbagi satu kuota. Bila pengguna tetap mengisi key sendiri, key pengguna yang dipakai.
 
 | Key | Cara mendapatkan | Catatan |
 |---|---|---|
-| **OpenAlex** | Buat akun di openalex.org, lalu buka https://openalex.org/settings/api | Gratis: 1.000 pencarian per hari dengan key. Cukup untuk 4 kelompok. |
-| **Gemini** | Buka Google AI Studio (aistudio.google.com), menu *Get API key* | Free tier: konten **dipakai Google untuk mengembangkan produk**. Jangan masukkan data responden atau naskah yang belum terbit. |
+| **Gemini** | https://aistudio.google.com/apikey | Free tier: konten **dipakai Google untuk mengembangkan produk**. Jangan masukkan data responden atau naskah yang belum terbit. |
+| **OpenAlex** | Buat akun di openalex.org, lalu buka https://openalex.org/settings/api | Dengan key: 1.000 pencarian per hari. |
 
-Alternatif AI: Groq (format OpenAI). Isi `LLM_PROVIDER=openai` dan `OPENAI_COMPAT_API_KEY`. Batas token per menit Groq free tier kecil, jadi penyusunan draf bisa tertahan bila beberapa kelompok mengeklik bersamaan.
+> Jangan pernah menulis API key di dalam kode atau di repositori GitHub, apalagi repositori publik. Key Gemini yang bocor di GitHub publik biasanya dinonaktifkan otomatis.
 
 ## B. Deploy ke Vercel (sekitar 10 menit)
 
@@ -30,18 +42,19 @@ Alternatif AI: Groq (format OpenAI). Isi `LLM_PROVIDER=openai` dan `OPENAI_COMPA
 2. **Import ke Vercel**
    - Masuk ke vercel.com dengan akun GitHub → *Add New… → Project* → pilih repositori tadi → *Import*.
    - *Framework Preset*: **Other**. Biarkan *Build Command* kosong.
-3. **Isi Environment Variables** (sebelum klik Deploy):
+3. **Environment Variables** (opsional bila setiap kelompok memakai key sendiri; lihat bagian A):
 
    | Nama | Isi |
    |---|---|
-   | `OPENALEX_API_KEY` | key OpenAlex |
-   | `GEMINI_API_KEY` | key Gemini |
+   | `OPENALEX_API_KEY` | opsional, key OpenAlex narasumber |
+   | `GEMINI_API_KEY` | opsional, key Gemini narasumber (Cara 2) |
    | `ACCESS_CODE` | opsional, mis. `binus2026`, dibagikan ke peserta saat sesi |
    | `EVENT_NAME` | opsional, judul acara di kepala halaman |
    | `GEMINI_MODEL` | opsional; kosongkan agar dipilih otomatis |
 
+   Setiap variabel harus dicentang untuk environment **Production**. Setelah mengubah env, lakukan **Redeploy**.
 4. Klik **Deploy**. Setelah selesai, buka alamat `https://nama-proyek.vercel.app`.
-5. **Cek status** di kanan atas: harus hijau, bertuliskan *Google Gemini API · OpenAlex*. Jika merah *AI belum dikonfigurasi*, periksa env var lalu *Redeploy*.
+5. **Cek status** di kanan atas. Tanpa key server, status merah *Isi API key Gemini* itu normal; setelah key kelompok ditempel, status menjadi hijau *Gemini (key kelompok) · OpenAlex*.
 
 Alternatif tanpa GitHub: pasang Node.js, lalu di folder proyek jalankan `npx vercel` dan ikuti petunjuknya. Env var bisa diisi lewat dasbor Vercel.
 
@@ -87,7 +100,8 @@ dev-server.js  server lokal untuk uji coba
 
 | Gejala | Penyebab dan solusi |
 |---|---|
-| Status merah *AI belum dikonfigurasi* | `GEMINI_API_KEY` kosong atau salah nama. Perbaiki di Vercel → Settings → Environment Variables → Redeploy. |
+| Status merah *Isi API key Gemini* | Tempel API key Gemini di langkah 1, atau isi `GEMINI_API_KEY` (environment Production) di Vercel lalu Redeploy. |
+| *API key Gemini ditolak Google* | Key salah salin atau sudah dihapus. Buat key baru di AI Studio. |
 | *Gemini mengembalikan status 404* | Nama model tidak tersedia. Kosongkan `GEMINI_MODEL` agar dipilih otomatis, atau isi nama model dari AI Studio. |
 | *Kuota … tercapai* | Tunggu satu menit. Untuk OpenAlex, kuota harian di-reset pukul 07.00 WIB (tengah malam UTC). |
 | Pencarian kosong | Kata kunci terlalu panjang. Gunakan 3–6 kata bahasa Inggris tanpa AND/OR. |
