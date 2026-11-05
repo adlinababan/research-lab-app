@@ -1,5 +1,5 @@
 import { sendJson, isMock } from "../lib/http.js";
-import { providerInfo, OPENROUTER_MODELS } from "../lib/llm.js";
+import { providerInfo, OPENROUTER_MODELS, LOCKED_MODEL } from "../lib/llm.js";
 
 export default async function handler(req, res) {
   const p = providerInfo();
@@ -10,6 +10,7 @@ export default async function handler(req, res) {
     llm: { label: p.label, model: p.model, configured: isMock() || p.configured },
     byok: true,
     openrouterModels: OPENROUTER_MODELS,
+    lockedModel: LOCKED_MODEL(),
     openalexKey: Boolean((process.env.OPENALEX_API_KEY || "").trim()),
     eventName: process.env.EVENT_NAME || "AI-Assisted Research: Dari Ide hingga Publikasi",
   });

@@ -26,8 +26,8 @@ export default async function handler(req, res) {
     const paper = {
       lang: b.lang === "id" ? "id" : "en",
       title: clip(b.title, 300),
-      authors: (b.authors || []).slice(0, 3).map((a) => ({
-        name: clip(a.name, 120), dept: clip(a.dept, 160), org: clip(a.org, 160), city: clip(a.city, 120), email: clip(a.email, 160),
+      authors: (b.authors || []).slice(0, 6).map((a) => ({
+        name: clip(a.name, 120), dept: clip(a.prodi || a.dept, 160), org: clip(a.org, 160), city: clip(a.city, 120), email: clip(a.email, 160),
       })),
       abstract: clip(b.abstract, 3000).replace(/\[\d+\]/g, "").replace(/\s{2,}/g, " "),
       keywords: (b.keywords || []).slice(0, 8).map((k) => clip(k, 60)),
@@ -36,6 +36,8 @@ export default async function handler(req, res) {
         ? { aspects: (b.matrix.aspects || []).slice(0, 4).map((a) => clip(a, 40)), rows: matrixRows.map((r) => ({ n: finalMap.get(Number(r.n)), cells: (r.cells || []).slice(0, 4) })).sort((x, y) => x.n - y.n) }
         : null,
       acknowledgment: clip(b.acknowledgment, 2000),
+      contributionship: clip(b.contributionship, 3000),
+      openData: clip(b.openData, 1500),
       references: finalOrder.map((old) => ieeeReferenceParts(byN.get(old))),
     };
     const buf = buildDocx(paper);

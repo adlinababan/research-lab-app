@@ -1,12 +1,14 @@
 # Research Lab — Dari Judul ke Draf Paper
 
-Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap peserta bekerja **mandiri dengan judulnya sendiri** melalui lima langkah:
+Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap paper ditulis oleh **tim 6 penulis dari 5 prodi** (Ilmu Komputer, Sistem Informasi, Bisnis Digital, Desain Komunikasi Visual, International Trade), dengan judul yang ditentukan sendiri oleh peserta. Lima langkah:
 
-1. **Peserta dan judul**: peserta menulis judul penelitiannya sendiri (wajib), tujuan dan rencana metode (opsional), bahasa naskah, dan data penulis. AI tidak menentukan atau mengganti judul.
-2. **Literatur**: AI mengubah judul menjadi kata kunci bahasa Inggris, lalu peserta mencari makalah **nyata** di OpenAlex (semua ber-DOI) dan memilih 5–15 makalah.
-3. **Matriks gap**: AI menilai abstrak makalah terpilih terhadap aspek-aspek judul (Ya / Sebagian / Belum) dan mengusulkan gap; peserta mengoreksi dan memilih.
-4. **Judul dan draf**: berdasarkan gap yang dipilih, AI menyarankan 3 versi judul yang lebih tajam (topik tetap sama) beserta 5 kata kunci; peserta boleh memilih salah satu, menyunting, atau tetap memakai judul awal. Lalu AI menyusun draf yang **hanya mengutip makalah terpilih**. Angka hasil tidak dikarang; ditulis sebagai `[placeholder]`.
-5. **Integritas dan ekspor**: pratinjau gaya IEEE, pernyataan penggunaan AI, checklist, lalu unduh **.docx dalam template IEEE Conference A4**.
+1. **Peserta dan judul**: dua API key (OpenRouter dan OpenAlex) dengan tombol cek, judul penelitian sendiri, serta **6 penulis wajib** (nama dan prodi wajib; institusi, kota, email).
+2. **Literatur lintas prodi**: AI menyarankan kata kunci umum dan **satu lensa pencarian per prodi**. Setiap referensi OpenAlex (ber-DOI, dengan bidang ilmunya) ditandai prodinya; minimal 3 referensi dari minimal 2 prodi.
+3. **Matriks gap**: AI menilai abstrak dari sudut pandang beberapa prodi tim dan mengusulkan gap di irisan antardisiplin.
+4. **Judul dan draf**: saran 3 judul yang lebih tajam + 5 kata kunci (judul awal tetap bisa dipakai), lalu draf yang **hanya mengutip referensi terpilih** dengan angka hasil sebagai `[placeholder]`.
+5. **Integritas dan ekspor**: **Open Contributionship** (peran CRediT per penulis, bisa disarankan AI lalu disunting), **Open Data** (tiga templat: dataset terbuka pihak lain, data sendiri dibagikan, atau data tidak dapat dibagikan), pernyataan penggunaan AI, checklist, lalu unduh **.docx template IEEE Conference A4** (dua baris × tiga penulis).
+
+Model AI **dikunci** ke `google/gemini-2.5-flash-lite` (US$0,10 / US$0,40 per juta token) agar hasil dan biaya seragam; model lain hanya tampil sebagai informasi. Narasumber dapat menggantinya lewat env `OPENROUTER_MODEL`.
 
 Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api/`, frontend di `public/`.
 
@@ -29,14 +31,14 @@ Setelah menempel keduanya, peserta mengeklik **Cek kedua key**: aplikasi memasti
 
 1. Masuk ke https://openrouter.ai → menu **Keys** → **Create Key**. Salin key yang diawali `sk-or-`.
 2. Menu **Credits** → isi kredit minimal US$5. **Tanpa saldo, semua model berbayar ditolak** dengan pesan "kredit tidak cukup", dan model gratis pun bisa ikut ditolak bila saldo 0 atau minus.
-   Model bawaan `anthropic/claude-haiku-5.5` (US$0,10 / US$0,50 per juta token input/output) menghabiskan kurang dari **US$0,01 per peserta** untuk satu alur penuh. Peserta bisa memilih model lain di langkah 1:
+   Model terkunci `google/gemini-2.5-flash-lite` (US$0,10 / US$0,40 per juta token input/output) menghabiskan kurang dari **US$0,01 per alur penuh**. Daftar model lain (hanya informasi):
 
    | Model | Harga per 1 juta token (input / output) | Catatan |
    |---|---|---|
-   | `anthropic/claude-haiku-5.5` | $0,10 / $0,50 | Bawaan; paling patuh aturan sitasi dan placeholder |
+   | `google/gemini-2.5-flash-lite` | $0,10 / $0,40 | **Dipakai (dikunci)** |
+   | `anthropic/claude-haiku-5.5` | $0,10 / $0,50 | Paling patuh aturan sitasi dan placeholder |
    | `deepseek/deepseek-v4-flash` | $0,09 / $0,18 | Paling hemat |
    | `openai/gpt-6-luna` | $0,10 / $0,50 | Murah, serbaguna |
-   | `google/gemini-2.5-flash-lite` | $0,10 / $0,40 | Murah, cepat |
    | `google/gemini-3.6-flash` | $0,75 / $3,75 | Lebih mahal |
 
 3. (Hanya bila memakai key narasumber di server) Vercel → **Settings → Environment Variables** → `OPENROUTER_API_KEY`, centang **Production**, lalu **Redeploy**.
