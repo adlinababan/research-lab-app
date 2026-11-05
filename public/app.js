@@ -2,7 +2,12 @@
 // Prinsip: judul milik peserta, tim penulis multidisiplin (1–6 penulis, 5 rumpun prodi), AI hanya membantu.
 // Referensi hanya dari OpenAlex; angka hasil tidak dikarang; kontribusi dan data dinyatakan terbuka.
 
-const PRODI = ["Ilmu Komputer", "Sistem Informasi", "Bisnis Digital", "Desain Komunikasi Visual", "International Trade"];
+const PRODI = ["Computer Science", "Information Systems", "Digital Business", "Visual Communication Design", "International Trade"];
+// Nama lama (bahasa Indonesia) dari sesi tersimpan dipetakan ke nama bahasa Inggris.
+const PRODI_OLD = { "Ilmu Komputer": "Computer Science", "Sistem Informasi": "Information Systems", "Bisnis Digital": "Digital Business", "Desain Komunikasi Visual": "Visual Communication Design" };
+const fixProdi = (p) => PRODI_OLD[p] || p;
+// Nilai sel matriks lama (Ya/Sebagian/Belum) dipetakan ke bahasa Inggris.
+const CELL_OLD = { Ya: "Yes", Sebagian: "Partial", Belum: "No" };
 const MAX_AUTHORS = 6;
 const STEPS = [
   { title: "Peserta dan judul", sub: "Judul, tim penulis" },
@@ -52,6 +57,10 @@ function load() {
     if (raw) {
       const s = deepMerge(defaultState(), JSON.parse(raw));
       s.me.authors = (s.me.authors.length ? s.me.authors : [blankAuthor()]).slice(0, MAX_AUTHORS).map((a) => ({ ...blankAuthor(), ...a }));
+      s.me.authors.forEach((a) => { a.prodi = fixProdi(a.prodi); });
+      s.lit.selected.forEach((w) => { w.prodi = fixProdi(w.prodi || ""); });
+      s.lit.lens = fixProdi(s.lit.lens || ""); s.lit.lastLens = fixProdi(s.lit.lastLens || "");
+      s.gap.matrix?.rows?.forEach((r) => { r.cells = r.cells.map((c) => CELL_OLD[c] || c); });
       syncContrib(s);
       return s;
     }
@@ -123,7 +132,7 @@ const ctx = () => ({ title: state.me.title, aim: state.me.aim, prodi: teamProdi(
 const lensProdi = () => (teamProdi().length ? teamProdi() : PRODI);
 const paperPayload = (full) => state.lit.selected.map((w) => full
   ? { n: w.n, title: w.title, year: w.year, authors: w.authors, venue: w.venue, abstract: w.abstract, prodi: w.prodi || "" }
-  : { n: w.n, title: w.title, year: w.year, abstract: w.abstract, prodi: w.prodi || "" });
+  : { n: w.n, title: w.title, year: w.year, authors: (w.authors || []).slice(0, 3), abstract: w.abstract, prodi: w.prodi || "" });
 function joinList(items) {
   const and = isId() ? "dan" : "and";
   if (items.length <= 1) return items[0] || "";
@@ -364,7 +373,7 @@ function viewMe() {
         <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
         <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
         <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@kampus.ac.id"></label>
-        <label class="field"><span>Rumpun prodi (untuk referensi lintas prodi)</span><select data-bind="me.authors.${i}.prodi"><option value="">Pilih rumpun</option>${PRODI.map((p) => `<option ${a.prodi === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
+        <label class="field"><span>Rumpun prodi / field (untuk referensi lintas prodi)</span><select data-bind="me.authors.${i}.prodi"><option value="">Pilih rumpun</option>${PRODI.map((p) => `<option ${a.prodi === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
       </div>
       ${m.authors.length > 1 ? `<button type="button" class="btn ghost small author-del" data-act="del-author" data-i="${i}" aria-label="Hapus penulis ${i + 1}">Hapus</button>` : "<span></span>"}
     </div>`).join("");
@@ -475,7 +484,7 @@ function viewGap() {
       <thead><tr><th style="width:44%">Referensi</th>${m.aspects.map((a, i) => `<th><input data-act="aspect" data-i="${i}" value="${esc(a)}" aria-label="Nama kolom ${i + 1}"></th>`).join("")}</tr></thead>
       <tbody>${m.rows.map((r, ri) => { const w = byN.get(r.n); return `<tr><td><b>[${r.n}]</b> ${esc(w?.title || "(makalah sudah dihapus)")} ${w?.prodi ? `<span class="tag">${esc(w.prodi)}</span>` : ""}<div class="hint">${esc(r.note || "")}</div></td>${r.cells.map((c, ci) => `<td class="c"><button type="button" class="cell-btn" data-act="cell" data-r="${ri}" data-c="${ci}" data-v="${esc(c)}" title="Klik untuk mengubah">${esc(c)}</button></td>`).join("")}</tr>`; }).join("")}</tbody>
     </table></div>
-    <p class="hint">Isi sel dinilai AI hanya dari judul dan abstrak. Klik sel untuk mengoreksi (Ya → Sebagian → Belum). Cek minimal dua sel dengan membaca abstraknya sendiri.</p>` : "";
+    <p class="hint">Isi sel dinilai AI hanya dari judul dan abstrak. Klik sel untuk mengoreksi (Yes → Partial → No). Cek minimal dua sel dengan membaca abstraknya sendiri.</p>` : "";
   const gaps = state.gap.gaps.length ? state.gap.gaps.map((g, i) => `
     <label class="qcard"><input type="radio" name="gap" data-act="choose-gap" value="${i}" ${state.gap.chosen === i ? "checked" : ""}>
       <div><div class="q">${esc(g.statement)}</div>${g.evidence.length ? `<div class="hint">Paling dekat: ${g.evidence.map((n) => `[${n}]`).join(", ")}</div>` : ""}</div></label>`).join("") : "";
@@ -484,7 +493,7 @@ function viewGap() {
     ${header(2, "Matriks gap lintas prodi", `Judul: <b>${esc(state.me.title)}</b>`)}
     <section class="card ai">
       <h2>AI memetakan</h2>
-      <p class="hint">AI membaca ${state.lit.selected.length} abstrak referensi terpilih, menilai judul Anda dari sudut pandang beberapa prodi tim, lalu mengusulkan gap di irisan antar-disiplin. AI tidak boleh menambah makalah lain.</p>
+      <p class="hint">AI membaca ${state.lit.selected.length} abstrak referensi terpilih, menilai judul Anda dari sudut pandang beberapa rumpun prodi, lalu mengusulkan gap di irisan antardisiplin. Matriks dan gap ditulis dalam <b>bahasa Inggris</b> dengan sitasi nama penulis, misalnya <i>Lee et al. [3]</i>. AI tidak boleh menambah makalah lain.</p>
       <div>${btn("make-gap", m ? "Buat ulang matriks" : "Buat matriks gap", { disabled: few })}</div>
       ${few ? '<div class="alert warn">Pilih minimal dua referensi di langkah Literatur.</div>' : ""}
       ${errBox("make-gap")}
@@ -493,7 +502,7 @@ function viewGap() {
     </section>
     <section class="card human">
       <h2>Keputusan tim</h2>
-      <label class="field"><span>Gap yang dipilih (sunting dengan kalimat sendiri)</span><textarea data-bind="gap.text" rows="3">${esc(state.gap.text)}</textarea></label>
+      <label class="field"><span>Gap yang dipilih (bahasa Inggris; sunting dengan kalimat sendiri, pertahankan sitasi nama penulis)</span><textarea data-bind="gap.text" rows="4">${esc(state.gap.text)}</textarea></label>
     </section>
     ${navRow("Lanjut ke judul dan draf")}`;
 }
@@ -737,7 +746,7 @@ const actions = {
     state.gap.gaps = r.result.gaps; state.gap.chosen = -1; noteModel(r);
   }),
   cell: (el) => {
-    const order = ["Ya", "Sebagian", "Belum"];
+    const order = ["Yes", "Partial", "No"];
     const row = state.gap.matrix.rows[Number(el.dataset.r)];
     const c = Number(el.dataset.c);
     row.cells[c] = order[(order.indexOf(row.cells[c]) + 1) % 3];

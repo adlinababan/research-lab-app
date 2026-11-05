@@ -1,10 +1,10 @@
 # Research Lab — Dari Judul ke Draf Paper
 
-Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap paper ditulis oleh **tim 1–6 penulis** lintas prodi (rumpun: Ilmu Komputer, Sistem Informasi, Bisnis Digital, Desain Komunikasi Visual, International Trade), dengan judul yang ditentukan sendiri oleh peserta. Lima langkah:
+Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap paper ditulis oleh **tim 1–6 penulis** lintas prodi (rumpun: Computer Science, Information Systems, Digital Business, Visual Communication Design, International Trade), dengan judul yang ditentukan sendiri oleh peserta. Lima langkah:
 
 1. **Peserta dan judul**: dua API key (OpenRouter dan OpenAlex) dengan tombol cek, judul penelitian sendiri, serta **1–6 penulis** (nama wajib; departemen, fakultas/school, universitas, kota, email, dan rumpun prodi). Blok penulis di .docx tercetak: Nama / *Departemen* / *Fakultas* / *Universitas* / Kota, negara / email.
 2. **Literatur lintas prodi**: AI menyarankan kata kunci umum dan **satu lensa pencarian per prodi**. Setiap referensi OpenAlex (ber-DOI, dengan bidang ilmunya) ditandai prodinya; minimal 3 referensi dari minimal 2 prodi.
-3. **Matriks gap**: AI menilai abstrak dari sudut pandang beberapa prodi tim dan mengusulkan gap di irisan antardisiplin.
+3. **Matriks gap** (bahasa Inggris): AI menilai abstrak dari sudut pandang beberapa rumpun prodi (Yes / Partial / No) dan mengusulkan gap di irisan antardisiplin, dengan sitasi nama penulis dari data OpenAlex, misalnya *Lee et al. [3]* atau *Putri and Hadi [5]*.
 4. **Judul dan draf**: saran 3 judul yang lebih tajam + 5 kata kunci (judul awal tetap bisa dipakai), lalu draf yang **hanya mengutip referensi terpilih** dengan angka hasil sebagai `[placeholder]`.
 5. **Integritas dan ekspor**: **Open Contributionship** (peran CRediT per penulis, bisa disarankan AI lalu disunting), **Open Data** (tiga templat: dataset terbuka pihak lain, data sendiri dibagikan, atau data tidak dapat dibagikan), pernyataan penggunaan AI, checklist, lalu unduh **.docx template IEEE Conference A4** (tiga penulis per baris).
 
