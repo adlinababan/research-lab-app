@@ -1,38 +1,36 @@
-# Research Lab — Aplikasi Pelatihan Riset Lintas Prodi Berbantuan AI
+# Research Lab — Dari Judul ke Draf Paper
 
-Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap kelompok berjalan melalui enam langkah:
+Aplikasi web untuk sesi **AI-Assisted Research: Dari Ide hingga Publikasi**. Setiap peserta bekerja **mandiri dengan judulnya sendiri** melalui lima langkah:
 
-1. **Kelompok**: tema, prodi anggota, bahasa naskah, data penulis.
-2. **Pertanyaan riset**: AI mengusulkan fenomena per prodi dan 3 pertanyaan lintas prodi; kelompok memilih dan mempertajam.
-3. **Literatur**: pencarian makalah **nyata** di OpenAlex (semua ber-DOI); kelompok memilih 5–15 makalah.
-4. **Matriks gap**: AI menilai abstrak makalah terpilih (Ya / Sebagian / Belum) dan mengusulkan gap; kelompok mengoreksi dan memilih.
-5. **Judul dan draf**: AI mengusulkan judul lalu menyusun draf paper yang **hanya mengutip makalah terpilih**. Angka hasil tidak dikarang; ditulis sebagai `[placeholder]`.
-6. **Integritas dan ekspor**: pratinjau gaya IEEE, pernyataan penggunaan AI, checklist, lalu unduh **.docx dalam template IEEE Conference A4** (template asli Anda, termasuk style dan penomoran).
+1. **Peserta dan judul**: peserta menulis judul penelitiannya sendiri (wajib), tujuan dan rencana metode (opsional), bahasa naskah, dan data penulis. AI tidak menentukan atau mengganti judul.
+2. **Literatur**: AI mengubah judul menjadi kata kunci bahasa Inggris, lalu peserta mencari makalah **nyata** di OpenAlex (semua ber-DOI) dan memilih 5–15 makalah.
+3. **Matriks gap**: AI menilai abstrak makalah terpilih terhadap aspek-aspek judul (Ya / Sebagian / Belum) dan mengusulkan gap; peserta mengoreksi dan memilih.
+4. **Draf paper**: AI menyusun draf untuk judul peserta yang **hanya mengutip makalah terpilih**. Angka hasil tidak dikarang; ditulis sebagai `[placeholder]`.
+5. **Integritas dan ekspor**: pratinjau gaya IEEE, pernyataan penggunaan AI, checklist, lalu unduh **.docx dalam template IEEE Conference A4**.
 
 Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api/`, frontend di `public/`.
 
 ---
 
-## A. API key: dua cara
+## A. API key AI
 
-**Cara 1 — setiap kelompok memakai API key sendiri (disarankan untuk 10–20+ pengguna).**
-Tidak perlu mengisi apa pun di Vercel. Di langkah 1 aplikasi, setiap kelompok/pengguna menempelkan API key Gemini gratis miliknya:
+**Disarankan: satu key OpenRouter milik narasumber di server.**
 
-1. Buka https://aistudio.google.com/apikey, masuk dengan akun Google.
-2. Klik **Create API key**, salin key yang diawali `AIza…`.
-3. Tempel di kolom *API key Gemini kelompok* pada aplikasi.
+1. Masuk ke https://openrouter.ai → menu **Keys** → **Create Key**. Salin key yang diawali `sk-or-`.
+2. Menu **Credits** → isi kredit (misalnya US$5–10). Model bawaan `google/gemini-3.6-flash` berbiaya sekitar US$0,75 per juta token input dan US$3,75 per juta token output, kira-kira **US$0,02–0,05 per peserta** untuk satu alur penuh. Untuk 20 peserta, totalnya sekitar US$1.
+3. Di Vercel → **Settings → Environment Variables**, tambahkan `OPENROUTER_API_KEY` dengan environment **Production** dicentang, lalu **Redeploy**.
 
-Kuota setiap key terpisah, jadi 20 pengguna tidak berebut satu kuota. Key hanya disimpan di browser pengguna (localStorage), dikirim ke server per permintaan untuk diteruskan ke Google, dan **tidak disimpan atau dicatat** di server. Tombol *Hapus key dari perangkat ini* dan *Mulai baru* menghapusnya. Key OpenAlex bersifat opsional: tanpa key, pencarian tetap berjalan dengan kuota gratis yang lebih kecil.
+Model gratis OpenRouter (`:free`) dibatasi 20 permintaan per menit dan 50 per hari untuk akun yang belum pernah membeli kredit (1.000 per hari setelah total pembelian US$10). Itu tidak cukup untuk 20 peserta, jadi model berbayar yang murah lebih aman. Model lain bisa dipilih lewat `OPENROUTER_MODEL`.
 
-**Cara 2 — satu key milik narasumber di server.**
-Isi `GEMINI_API_KEY` (dan `OPENALEX_API_KEY`) di Environment Variables Vercel. Pengguna tidak perlu memasukkan key, tetapi semua berbagi satu kuota. Bila pengguna tetap mengisi key sendiri, key pengguna yang dipakai.
+**Alternatif: setiap peserta menempelkan key sendiri** di langkah 1 aplikasi. Kolom key menerima key OpenRouter (`sk-or-…`) maupun Gemini (`AIza…`) dan mengenalinya otomatis. Key hanya disimpan di browser peserta, diteruskan per permintaan, dan tidak disimpan di server. Bila peserta mengisi key sendiri, key peserta yang dipakai.
 
 | Key | Cara mendapatkan | Catatan |
 |---|---|---|
-| **Gemini** | https://aistudio.google.com/apikey | Free tier: konten **dipakai Google untuk mengembangkan produk**. Jangan masukkan data responden atau naskah yang belum terbit. |
-| **OpenAlex** | Buat akun di openalex.org, lalu buka https://openalex.org/settings/api | Dengan key: 1.000 pencarian per hari. |
+| **OpenRouter** | https://openrouter.ai → Keys | Disarankan. Butuh kredit untuk model berbayar. |
+| **Gemini** | https://aistudio.google.com/apikey | Alternatif. Free tier: konten dipakai Google untuk mengembangkan produk. |
+| **OpenAlex** | Akun di openalex.org → https://openalex.org/settings/api | Opsional; dengan key: 1.000 pencarian per hari. |
 
-> Jangan pernah menulis API key di dalam kode atau di repositori GitHub, apalagi repositori publik. Key Gemini yang bocor di GitHub publik biasanya dinonaktifkan otomatis.
+> Jangan pernah menulis API key di dalam kode atau di repositori GitHub, apalagi repositori publik.
 
 ## B. Deploy ke Vercel (sekitar 10 menit)
 
@@ -42,19 +40,20 @@ Isi `GEMINI_API_KEY` (dan `OPENALEX_API_KEY`) di Environment Variables Vercel. P
 2. **Import ke Vercel**
    - Masuk ke vercel.com dengan akun GitHub → *Add New… → Project* → pilih repositori tadi → *Import*.
    - *Framework Preset*: **Other**. Biarkan *Build Command* kosong.
-3. **Environment Variables** (opsional bila setiap kelompok memakai key sendiri; lihat bagian A):
+3. **Environment Variables** (lihat bagian A):
 
    | Nama | Isi |
    |---|---|
+   | `OPENROUTER_API_KEY` | key OpenRouter narasumber (disarankan) |
    | `OPENALEX_API_KEY` | opsional, key OpenAlex narasumber |
-   | `GEMINI_API_KEY` | opsional, key Gemini narasumber (Cara 2) |
+   | `GEMINI_API_KEY` | opsional, alternatif bila tidak memakai OpenRouter |
    | `ACCESS_CODE` | opsional, mis. `binus2026`, dibagikan ke peserta saat sesi |
    | `EVENT_NAME` | opsional, judul acara di kepala halaman |
    | `GEMINI_MODEL` | opsional; kosongkan agar dipilih otomatis |
 
    Setiap variabel harus dicentang untuk environment **Production**. Setelah mengubah env, lakukan **Redeploy**.
 4. Klik **Deploy**. Setelah selesai, buka alamat `https://nama-proyek.vercel.app`.
-5. **Cek status** di kanan atas. Tanpa key server, status merah *Isi API key Gemini* itu normal; setelah key kelompok ditempel, status menjadi hijau *Gemini (key kelompok) · OpenAlex*.
+5. **Cek status** di kanan atas: hijau *OpenRouter · OpenAlex* berarti key server terbaca. Merah *Isi API key AI* berarti key server belum terbaca (cek environment Production lalu Redeploy) dan peserta harus menempelkan key sendiri.
 
 Alternatif tanpa GitHub: pasang Node.js, lalu di folder proyek jalankan `npx vercel` dan ikuti petunjuknya. Env var bisa diisi lewat dasbor Vercel.
 
@@ -62,10 +61,10 @@ Alternatif tanpa GitHub: pasang Node.js, lalu di folder proyek jalankan `npx ver
 
 ## C. Uji sebelum acara (wajib, H-1)
 
-1. Jalankan satu alur penuh untuk satu kelompok sampai unduh .docx.
+1. Jalankan satu alur penuh dengan satu judul sampai unduh .docx.
 2. Buka .docx di Word dan pastikan tampilannya dua kolom IEEE, bagian kuning adalah placeholder.
 3. Coba dari jaringan yang akan dipakai di lokasi acara.
-4. Simpan satu file *Unduh data sesi (.json)* per tema sebagai cadangan.
+4. Simpan satu file *Unduh data sesi (.json)* sebagai contoh cadangan.
 
 ## D. Mencoba di komputer sendiri
 
@@ -79,8 +78,8 @@ Membutuhkan Node.js 20 ke atas. Tidak perlu `npm install`.
 
 ## E. Batas pemakaian dan perilaku penting
 
-- **Data per kelompok tersimpan di browser** perangkat masing-masing (localStorage). Tombol *Mulai baru* menghapusnya. Gunakan *Unduh data sesi (.json)* untuk arsip.
-- **Kuota AI**: free tier punya batas per menit. Jika muncul pesan kuota, tunggu sekitar satu menit lalu klik lagi. Dengan 4 kelompok, ini jarang terjadi.
+- **Data setiap peserta tersimpan di browser** perangkat masing-masing (localStorage). Tombol *Mulai baru* menghapusnya. Gunakan *Unduh data sesi (.json)* untuk arsip.
+- **Kuota AI**: dengan key OpenRouter berkredit, 20 peserta bersamaan tidak bermasalah. Jika muncul pesan *saldo tidak cukup*, isi kredit OpenRouter. Jika muncul pesan batas permintaan, tunggu sekitar satu menit.
 - **Sitasi**: server membuang sitasi ke nomor yang tidak ada di daftar makalah terpilih, lalu menomori ulang sesuai urutan kemunculan (aturan IEEE). Makalah yang tidak dikutip tidak masuk daftar referensi.
 - **Abstrak tanpa sitasi**: sesuai gaya IEEE, sitasi di abstrak dihapus otomatis.
 - **Pernyataan AI**: teks Acknowledgment otomatis menyebut sistem AI dan bagian yang dibantu (kebijakan IEEE). Peserta wajib menyesuaikannya.
@@ -100,9 +99,10 @@ dev-server.js  server lokal untuk uji coba
 
 | Gejala | Penyebab dan solusi |
 |---|---|
-| Status merah *Isi API key Gemini* | Tempel API key Gemini di langkah 1, atau isi `GEMINI_API_KEY` (environment Production) di Vercel lalu Redeploy. |
-| *API key Gemini ditolak Google* | Key salah salin atau sudah dihapus. Buat key baru di AI Studio. |
-| *Gemini mengembalikan status 404* | Nama model tidak tersedia. Kosongkan `GEMINI_MODEL` agar dipilih otomatis, atau isi nama model dari AI Studio. |
+| Status merah *Isi API key AI* | `OPENROUTER_API_KEY` belum terbaca. Pastikan environment **Production** dicentang, lalu Redeploy. Sementara itu peserta bisa menempelkan key di langkah 1. |
+| *API key ditolak* | Key salah salin, ada spasi, atau sudah dihapus. Buat key baru. |
+| *Saldo OpenRouter tidak cukup* | Isi kredit di openrouter.ai → Credits, atau ganti `OPENROUTER_MODEL`. |
+| *… mengembalikan status 404* | Nama model tidak tersedia. Kosongkan `OPENROUTER_MODEL` / `GEMINI_MODEL` agar memakai bawaan. |
 | *Kuota … tercapai* | Tunggu satu menit. Untuk OpenAlex, kuota harian di-reset pukul 07.00 WIB (tengah malam UTC). |
 | Pencarian kosong | Kata kunci terlalu panjang. Gunakan 3–6 kata bahasa Inggris tanpa AND/OR. |
 | Peserta diminta kode akses | `ACCESS_CODE` aktif. Bagikan kodenya di layar. |
