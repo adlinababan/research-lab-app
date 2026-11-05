@@ -237,3 +237,9 @@ input.readonly { background: var(--bg); color: var(--muted); cursor: default; }
 @media print {
   .topbar, .stepper, .nav-row, .btn { display: none !important; }
 }
+
+/* Pilihan pendekatan penelitian */
+.approach-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.check-pill.approach { align-items: flex-start; border-radius: 10px; padding: 10px 12px; height: 100%; }
+.check-pill.approach span { display: flex; flex-direction: column; gap: 2px; }
+.check-pill.approach small { color: var(--muted); font-size: 12.5px; line-height: 1.35; font-weight: 400; }
