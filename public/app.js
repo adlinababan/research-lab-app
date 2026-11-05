@@ -69,6 +69,10 @@ function clearKeys() { memKeys = { ai: "", openalex: "" }; try { localStorage.re
 function keyKind(k) { return k.startsWith("sk-or-") ? "OpenRouter" : k.startsWith("AIza") ? "Gemini" : k ? "tidak dikenal" : ""; }
 function serverHasKey() { return Boolean(config && (config.mock || config.llm?.configured)); }
 function hasAiKey() { return !config || serverHasKey() || ["OpenRouter", "Gemini"].includes(keyKind(getKeys().ai)); }
+function serverHasOpenAlex() { return Boolean(config && (config.mock || config.openalexKey)); }
+const okOpenAlexFormat = (k) => /^[A-Za-z0-9_\-]{10,200}$/.test(k || "");
+function hasOpenAlexKey() { return !config || serverHasOpenAlex() || okOpenAlexFormat(getKeys().openalex); }
+let keyCheck = { ai: null, openalex: null }; // hasil tombol "Cek kedua key"
 
 // ---------- utilitas ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -160,7 +164,7 @@ function disclosure() {
 // ---------- status langkah ----------
 function stepDone(i) {
   switch (i) {
-    case 0: return Boolean(state.me.title.trim() && hasAiKey());
+    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey());
     case 1: return state.lit.selected.length >= 3;
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
@@ -200,37 +204,63 @@ function navRow(nextLabel = "Lanjut") {
   </div>`;
 }
 
-function keyStateTag() {
-  const k = getKeys().ai;
-  const kind = keyKind(k);
-  if (kind === "OpenRouter" || kind === "Gemini") return `<span class="tag" style="background:var(--ok-tint);color:var(--ok)">Key ${kind} tersimpan di perangkat ini</span>`;
-  if (kind) return '<span class="tag" style="background:var(--err-tint);color:var(--err)">Format key tidak dikenal</span>';
-  return serverHasKey() ? '<span class="tag muted">Tidak perlu diisi</span>' : '<span class="tag" style="background:var(--err-tint);color:var(--err)">Wajib diisi</span>';
+const TAG = {
+  ok: (t) => `<span class="tag" style="background:var(--ok-tint);color:var(--ok)">${t}</span>`,
+  bad: (t) => `<span class="tag" style="background:var(--err-tint);color:var(--err)">${t}</span>`,
+  mid: (t) => `<span class="tag muted">${t}</span>`,
+};
+function aiTag() {
+  if (keyCheck.ai) return keyCheck.ai.ok ? TAG.ok("Terverifikasi") : TAG.bad("Bermasalah");
+  const kind = keyKind(getKeys().ai);
+  if (kind === "OpenRouter" || kind === "Gemini") return TAG.mid(`Key ${kind} terisi`);
+  if (kind) return TAG.bad("Format tidak dikenal");
+  return serverHasKey() ? TAG.mid("Opsional (server punya key)") : TAG.bad("Wajib diisi");
+}
+function oaTag() {
+  if (keyCheck.openalex) return keyCheck.openalex.ok ? TAG.ok("Terverifikasi") : TAG.bad("Bermasalah");
+  const k = getKeys().openalex;
+  if (okOpenAlexFormat(k)) return TAG.mid("Key terisi");
+  if (k) return TAG.bad("Format tidak dikenal");
+  return serverHasOpenAlex() ? TAG.mid("Opsional (server punya key)") : TAG.bad("Wajib diisi");
+}
+function checkOut() {
+  const row = (name, r) => r ? `<div class="alert ${r.ok ? "ok" : "err"}"><b>${name}:</b> ${esc(r.msg)}</div>` : "";
+  return row("OpenRouter", keyCheck.ai) + row("OpenAlex", keyCheck.openalex);
 }
 function keyCard() {
   const k = getKeys();
-  const optional = serverHasKey();
+  const step = (items) => `<ol style="margin:6px 0 0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:4px">${items.map((i) => `<li>${i}</li>`).join("")}</ol>`;
   return `
     <section class="card" id="keyCard">
-      <div class="row" style="justify-content:space-between;align-items:center"><h3>API key AI</h3><span id="keyState">${keyStateTag()}</span></div>
-      <p class="hint" style="margin:0">${optional
-        ? "Aplikasi ini sudah memakai API key narasumber. Kolom ini boleh dikosongkan; isi hanya bila ingin memakai key Anda sendiri."
-        : "Tempel API key <b>OpenRouter</b> (diawali <code>sk-or-</code>) atau <b>Gemini</b> (diawali <code>AIza</code>). Jenis key dikenali otomatis."}</p>
-      <details ${optional || k.ai ? "" : "open"}><summary>Cara membuat key OpenRouter</summary>
-        <ol style="margin:6px 0 0;padding-left:20px;font-size:14px">
-          <li>Masuk ke <a href="https://openrouter.ai" target="_blank" rel="noopener">openrouter.ai</a>, buka menu <b>Keys</b>, klik <b>Create Key</b>.</li>
-          <li>Isi kredit di menu <b>Credits</b> (minimal US$5). Dengan model bawaan, satu alur penuh kurang dari US$0,01.</li>
-          <li>Salin key yang diawali <code>sk-or-</code> dan tempel di bawah.</li>
-        </ol></details>
+      <div class="row" style="justify-content:space-between;align-items:center"><h3>API key Anda</h3><span class="hint">Disimpan hanya di browser ini</span></div>
+      <p class="hint" style="margin:0">Setiap peserta memakai dua key miliknya sendiri: <b>OpenRouter</b> untuk AI dan <b>OpenAlex</b> untuk mencari literatur. Setelah menempel keduanya, klik <b>Cek kedua key</b>.</p>
       <div class="grid2">
-        <label class="field"><span>API key OpenRouter atau Gemini</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-ai" value="${esc(k.ai)}" placeholder="sk-or-… atau AIza…"></label>
-        <label class="field"><span>API key OpenAlex ${config?.openalexKey ? "(opsional, server sudah punya)" : "(sangat disarankan)"}</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="${config?.openalexKey ? "Kosongkan bila tidak punya" : "Tempel key dari openalex.org/settings/api"}"></label>
+        <div class="keybox">
+          <div class="row" style="justify-content:space-between;align-items:center"><b>1. OpenRouter (AI)</b><span id="tagAi">${aiTag()}</span></div>
+          <input type="password" autocomplete="off" spellcheck="false" data-act="key-ai" value="${esc(k.ai)}" placeholder="sk-or-v1-…" aria-label="API key OpenRouter">
+          <details ${k.ai ? "" : "open"}><summary>Cara daftar dan membuat key</summary>${step([
+            'Buka <a href="https://openrouter.ai" target="_blank" rel="noopener">openrouter.ai</a>, klik <b>Sign in</b> (bisa dengan akun Google).',
+            'Buka menu <b>Credits</b>, isi saldo minimal <b>US$5</b>. Tanpa saldo, permintaan AI akan ditolak.',
+            'Buka menu <b>Keys</b> → <b>Create Key</b>, beri nama (mis. "Research Lab"), lalu salin key <code>sk-or-…</code>. Key hanya ditampilkan sekali.',
+          ])}</details>
+        </div>
+        <div class="keybox">
+          <div class="row" style="justify-content:space-between;align-items:center"><b>2. OpenAlex (literatur)</b><span id="tagOa">${oaTag()}</span></div>
+          <input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="Key dari openalex.org/settings/api" aria-label="API key OpenAlex">
+          <details ${k.openalex ? "" : "open"}><summary>Cara daftar dan membuat key (gratis)</summary>${step([
+            'Buka <a href="https://openalex.org" target="_blank" rel="noopener">openalex.org</a> dan buat akun gratis (menu masuk/daftar di kanan atas).',
+            'Setelah masuk, buka <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">openalex.org/settings/api</a>.',
+            'Salin API key dan tempel di sini. Kuota gratis US$1 per hari, sekitar 1.000 pencarian.',
+          ])}</details>
+        </div>
       </div>
       ${modelPicker()}
       <div class="row" style="align-items:center">
+        ${btn("check-keys", "Cek kedua key", { kind: "ai", busyLabel: "Memeriksa…" })}
         <button type="button" class="btn ghost small" data-act="clear-keys" ${k.ai || k.openalex ? "" : "disabled"}>Hapus key dari perangkat ini</button>
-        <span class="hint">Key hanya disimpan di browser ini dan diteruskan ke penyedia AI saat dipakai; server tidak menyimpannya.</span>
       </div>
+      <div id="keyCheckOut" style="display:flex;flex-direction:column;gap:8px">${checkOut()}</div>
+      <p class="hint" style="margin:0">Key diteruskan ke OpenRouter dan OpenAlex hanya saat dipakai; server aplikasi tidak menyimpannya. Klik <b>Hapus key</b> setelah sesi bila memakai komputer bersama.</p>
     </section>`;
 }
 
@@ -282,7 +312,8 @@ function viewMe() {
 function meAlerts() {
   const a = [];
   if (!state.me.title.trim()) a.push("Isi judul penelitian Anda untuk melanjutkan.");
-  if (!hasAiKey()) a.push("Tempel API key OpenRouter atau Gemini di bagian atas halaman ini.");
+  if (!hasAiKey()) a.push("Tempel API key OpenRouter di bagian atas halaman ini.");
+  if (!hasOpenAlexKey()) a.push("Tempel API key OpenAlex di bagian atas halaman ini.");
   return a.map((t) => `<div class="alert warn">${t}</div>`).join("");
 }
 
@@ -494,7 +525,11 @@ async function doSearch(query) {
 
 const actions = {
   goto: (el) => goto(Number(el.dataset.i)),
-  "clear-keys": () => { clearKeys(); updateChip(); render(); toast("Key dihapus dari perangkat ini."); },
+  "clear-keys": () => { clearKeys(); keyCheck = { ai: null, openalex: null }; updateChip(); render(); toast("Key dihapus dari perangkat ini."); },
+  "check-keys": () => runTask("check-keys", async () => {
+    const r = await api("/api/check", {});
+    keyCheck = { ai: r.ai || null, openalex: r.openalex || null };
+  }),
   "add-author": () => { if (state.me.authors.length < 3) state.me.authors.push(blankAuthor()); save(); render(); },
   "del-author": (el) => { state.me.authors.splice(Number(el.dataset.i), 1); save(); render(); },
   "suggest-keywords": () => runTask("suggest-keywords", async () => {
@@ -613,9 +648,12 @@ document.addEventListener("input", (e) => {
   if (act === "ack") { state.exp.ack = el.value; state.exp.ackEdited = true; save(); return; }
   if (act === "key-ai" || act === "key-openalex") {
     const k = getKeys();
-    k[act === "key-ai" ? "ai" : "openalex"] = el.value.trim();
-    setKeys(k); updateChip(); refreshChrome();
-    const tag = $("#keyState"); if (tag) tag.innerHTML = keyStateTag();
+    const which = act === "key-ai" ? "ai" : "openalex";
+    k[which] = el.value.trim();
+    setKeys(k); keyCheck[which] = null; updateChip(); refreshChrome();
+    const t1 = $("#tagAi"); if (t1) t1.innerHTML = aiTag();
+    const t2 = $("#tagOa"); if (t2) t2.innerHTML = oaTag();
+    const out = $("#keyCheckOut"); if (out) out.innerHTML = checkOut();
     const hadPicker = Boolean(document.querySelector('[data-act="model"]'));
     if (hadPicker !== Boolean(modelPicker())) { const kc = $("#keyCard"); if (kc) { kc.outerHTML = keyCard(); const inp = document.querySelector(`[data-act="${act}"]`); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } } }
     const clr = document.querySelector('[data-act="clear-keys"]'); if (clr) clr.disabled = !(k.ai || k.openalex);
@@ -647,17 +685,17 @@ $("#accessForm").addEventListener("submit", async (e) => {
 });
 $("#resetBtn").addEventListener("click", () => {
   if (!window.confirm("Mulai sesi baru? Semua isian dan API key di perangkat ini akan dihapus. Unduh data sesi (.json) dulu bila perlu.")) return;
-  state = defaultState(); clearKeys(); Object.keys(errors).forEach((k) => delete errors[k]); flushSave(); updateChip(); render();
+  state = defaultState(); clearKeys(); keyCheck = { ai: null, openalex: null }; Object.keys(errors).forEach((k) => delete errors[k]); flushSave(); updateChip(); render();
 });
 
 function updateChip() {
   const chip = $("#statusChip");
   if (!config) return;
   const kind = keyKind(getKeys().ai);
+  const ai = kind === "OpenRouter" || kind === "Gemini" ? kind : config.llm.configured ? config.llm.label : "";
   if (config.mock) { chip.textContent = "Mode uji · data contoh"; chip.className = "chip warn"; }
-  else if (kind === "OpenRouter" || kind === "Gemini") { chip.textContent = `${kind} (key Anda) · OpenAlex`; chip.className = "chip ok"; }
-  else if (config.llm.configured) { chip.textContent = `${config.llm.label} · OpenAlex`; chip.className = "chip ok"; }
-  else { chip.textContent = "Isi API key AI"; chip.className = "chip err"; }
+  else if (ai && hasOpenAlexKey()) { chip.textContent = `${ai} · OpenAlex`; chip.className = "chip ok"; }
+  else { chip.textContent = !ai && !hasOpenAlexKey() ? "Isi 2 API key" : !ai ? "Isi API key OpenRouter" : "Isi API key OpenAlex"; chip.className = "chip err"; }
 }
 
 async function init() {

@@ -12,9 +12,20 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 
 ---
 
-## A. API key AI
+## A. API key
 
-**Disarankan: satu key OpenRouter milik narasumber di server.**
+**Cara utama: setiap peserta memakai dua key miliknya sendiri.** Di langkah 1 aplikasi ada dua kolom beserta panduan daftarnya:
+
+| Key | Untuk | Cara mendapatkan |
+|---|---|---|
+| **OpenRouter** (`sk-or-…`) | AI (kata kunci, matriks gap, draf) | openrouter.ai → Sign in → **Credits**: isi minimal US$5 → **Keys** → **Create Key** |
+| **OpenAlex** | Pencarian literatur | Buat akun gratis di openalex.org → buka openalex.org/settings/api → salin key (US$1 per hari gratis, ±1.000 pencarian) |
+
+Setelah menempel keduanya, peserta mengeklik **Cek kedua key**: aplikasi memastikan key OpenRouter valid dan menampilkan saldonya, lalu memastikan key OpenAlex diterima. Tombol **Lanjut** baru aktif setelah judul dan kedua key terisi. Key hanya disimpan di browser peserta dan tidak disimpan di server.
+
+**Alternatif: key milik narasumber di server.** Isi `OPENROUTER_API_KEY` dan `OPENALEX_API_KEY` (environment **Production**) di Vercel lalu Redeploy; kolom key peserta menjadi opsional.
+
+### Detail OpenRouter
 
 1. Masuk ke https://openrouter.ai → menu **Keys** → **Create Key**. Salin key yang diawali `sk-or-`.
 2. Menu **Credits** → isi kredit minimal US$5. **Tanpa saldo, semua model berbayar ditolak** dengan pesan "kredit tidak cukup", dan model gratis pun bisa ikut ditolak bila saldo 0 atau minus.
@@ -28,17 +39,11 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
    | `google/gemini-2.5-flash-lite` | $0,10 / $0,40 | Murah, cepat |
    | `google/gemini-3.6-flash` | $0,75 / $3,75 | Lebih mahal |
 
-3. Di Vercel → **Settings → Environment Variables**, tambahkan `OPENROUTER_API_KEY` dengan environment **Production** dicentang, lalu **Redeploy**.
+3. (Hanya bila memakai key narasumber di server) Vercel → **Settings → Environment Variables** → `OPENROUTER_API_KEY`, centang **Production**, lalu **Redeploy**.
 
 Model gratis OpenRouter (`:free`) dibatasi 20 permintaan per menit dan 50 per hari untuk akun yang belum pernah membeli kredit (1.000 per hari setelah total pembelian US$10). Itu tidak cukup untuk 20 peserta, jadi model berbayar yang murah lebih aman. Model bawaan server bisa diganti lewat `OPENROUTER_MODEL`. Aplikasi selalu membatasi panjang jawaban (`max_tokens`) agar saldo kecil tetap cukup.
 
-**Alternatif: setiap peserta menempelkan key sendiri** di langkah 1 aplikasi. Kolom key menerima key OpenRouter (`sk-or-…`) maupun Gemini (`AIza…`) dan mengenalinya otomatis. Key hanya disimpan di browser peserta, diteruskan per permintaan, dan tidak disimpan di server. Bila peserta mengisi key sendiri, key peserta yang dipakai.
-
-| Key | Cara mendapatkan | Catatan |
-|---|---|---|
-| **OpenRouter** | https://openrouter.ai → Keys | Disarankan. Butuh kredit untuk model berbayar. |
-| **Gemini** | https://aistudio.google.com/apikey | Alternatif. Free tier: konten dipakai Google untuk mengembangkan produk. |
-| **OpenAlex** | Akun di openalex.org → https://openalex.org/settings/api | Opsional; dengan key: 1.000 pencarian per hari. |
+Kolom key AI juga menerima key Gemini (`AIza…`, dari aistudio.google.com/apikey) sebagai alternatif; jenis key dikenali otomatis.
 
 > Jangan pernah menulis API key di dalam kode atau di repositori GitHub, apalagi repositori publik.
 
