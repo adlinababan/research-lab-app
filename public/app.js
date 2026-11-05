@@ -43,7 +43,7 @@ const blankAuthor = () => ({ name: "", deptKey: "", prodi: "", dept: "", faculty
 const defaultState = () => ({
   step: 0,
   me: { lang: "en", title: "", aim: "", method: "", approach: "", dataAvail: "", authors: [blankAuthor()] },
-  lit: { query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
+  lit: { novelty: "", query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
   draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [], guideChecks: {}, methodSugs: [], methodChosen: -1, methodApproach: "" },
   exp: {
@@ -231,8 +231,16 @@ function ieeeAuthors(authors) {
   if (a.length === 2) return `${a[0]} and ${a[1]}`;
   return `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`;
 }
+// Rapikan judul/nama berhuruf kapital semua dari metadata (sama dengan lib/openalex.js).
+const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "of", "on", "or", "the", "to", "via", "with", "dan", "di", "ke", "dari", "untuk", "pada", "yang", "dengan"]);
+function fixTitleCaps(t) {
+  const s = String(t || ""); const letters = s.replace(/[^A-Za-z]/g, "");
+  if (letters.length < 8 || letters !== letters.toUpperCase()) return s;
+  return s.toLowerCase().replace(/[A-Za-z][^\s\-/]*/g, (w, i) => (i > 0 && SMALL_WORDS.has(w) ? w : w[0].toUpperCase() + w.slice(1)));
+}
+const fixNameCaps = (n) => String(n || "").replace(/\b([A-Z])([A-Z]{2,})\b/g, (m, a, b) => a + b.toLowerCase());
 function ieeeRefHtml(w) {
-  const au = ieeeAuthors(w.authors);
+  const au = ieeeAuthors((w.authors || []).map(fixNameCaps));
   const tail = [];
   if (w.volume) tail.push(`vol. ${esc(w.volume)}`);
   if (w.issue) tail.push(`no. ${esc(w.issue)}`);
@@ -240,7 +248,7 @@ function ieeeRefHtml(w) {
   else if (w.firstPage) tail.push(`p. ${esc(w.firstPage)}`);
   if (w.year) tail.push(w.year);
   if (w.doi) tail.push(`doi: <a href="https://doi.org/${esc(w.doi)}" target="_blank" rel="noopener">${esc(w.doi)}</a>`);
-  return `${au ? esc(au) + ", " : ""}“${esc(w.title)},” ${w.venue ? `<i>${esc(w.venue)}</i>, ` : ""}${tail.join(", ")}.`;
+  return `${au ? esc(au) + ", " : ""}“${esc(fixTitleCaps(w.title))},” ${w.venue ? `<i>${esc(w.venue)}</i>, ` : ""}${tail.join(", ")}.`;
 }
 
 // ---------- pernyataan: AI, kontribusi, data ----------
@@ -492,6 +500,8 @@ function viewLiterature() {
       <button type="button" class="btn ghost small" data-act="remove-work" data-id="${esc(w.id)}">Hapus</button></li>`).join("");
   const general = L.suggestions.length
     ? `<div class="row" style="align-items:center;gap:8px"><span class="hint">${lensProdi().length > 1 ? `Irisan ${esc(lensProdi().join(" × "))}:` : "Umum:"}</span>${L.suggestions.map((q, i) => `<button type="button" class="btn ghost small" data-act="use-query" data-i="${i}">${esc(q)}</button>`).join("")}</div>` : "";
+  const novelty = L.novelty
+    ? `<div class="row" style="align-items:center;gap:8px"><span class="hint">Cek kebaruan:</span><button type="button" class="btn ghost small" data-act="use-novelty">${esc(L.novelty)}</button><span class="hint">Bila muncul studi yang persis sama dengan ide Anda, pilih dan masukkan ke referensi agar gap dipertajam.</span></div>` : "";
   const lenses = L.perProdi.length
     ? `<div class="lens-list">${L.perProdi.map((x, i) => `<button type="button" class="lens-btn" data-act="use-lens" data-i="${i}"><b>${esc(x.prodi)}</b><span>${esc(x.query)}</span></button>`).join("")}</div>
        <p class="hint" style="margin:0">Klik satu lensa untuk mencari. Makalah yang dipilih dari pencarian itu otomatis ditandai dengan prodi lensanya.</p>` : "";
@@ -505,6 +515,7 @@ function viewLiterature() {
       ${promptViewer("keywords")}
       ${lenses}
       ${general}
+      ${novelty}
     </section>
     <section class="card human">
       <h2>Pencarian</h2>
@@ -648,9 +659,11 @@ const GUIDE = {
     "Tanpa subjudul; template IEEE mengingatkan subjudul tidak tercatat di IEEE Xplore.",
     "Tanpa simbol, karakter khusus, rumus, atau singkatan yang tidak umum.",
     "Ringkas; patokan kerja sekitar 10–15 kata.",
+    "Tidak ada salah ketik dan istilah konsisten dengan isi.",
   ] },
   abstract: { name: "Abstrak", points: [
-    "Satu paragraf: latar, gap, tujuan, metode, hasil (atau hasil yang diharapkan), dan kontribusi.",
+    "Satu paragraf: latar, gap, tujuan, metode, hasil (placeholder sampai ada data), dan kontribusi.",
+    "Tidak menyebut tim atau prodi penulis; tanpa klaim berlebihan (novel, crucial).",
     "Tanpa sitasi, simbol, rumus, atau catatan kaki (peringatan di template IEEE).",
     "Umumnya 150–250 kata; ikuti batas di call for papers konferensi tujuan.",
     "Bisa dipahami tanpa membaca isi paper.",
@@ -658,17 +671,20 @@ const GUIDE = {
   keywords: { name: "Keywords (Index Terms)", points: [
     "3–6 istilah, dipisahkan koma.",
     "Istilah baku di bidangnya; cek IEEE Thesaurus bila konferensi memintanya.",
-    "Jangan sekadar mengulang kata-kata di judul.",
+    "Urutkan menurut abjad.",
+    "Jangan sekadar mengulang kata-kata di judul: tambahkan metode, jenis data, atau konteks.",
   ] },
   intro: { name: "I. Introduction", points: [
     "Konteks dan pentingnya masalah, didukung sitasi.",
-    "Gap dari literatur (boleh sitasi naratif penulis–tahun atau merujuk Tabel I).",
-    "Tujuan atau pertanyaan penelitian.",
-    "Kontribusi paper dinyatakan eksplisit.",
-    "Opsional: satu kalimat tentang susunan paper.",
+    "Gap dari literatur, dibandingkan dengan studi yang ditinjau (hindari klaim \"belum pernah ada penelitian\").",
+    "Tujuan dan 1–3 pertanyaan penelitian.",
+    "Kontribusi dinyatakan eksplisit: (1), (2), (3).",
+    "Satu kalimat tentang susunan paper (Section II …).",
+    "Tidak menyebut nama prodi atau departemen tim; sebut bidang ilmunya.",
   ] },
   related: { name: "II. Related Work", points: [
-    "Sintesis per tema atau per rumpun prodi, bukan ringkasan makalah satu per satu.",
+    "Sintesis per tema, bukan ringkasan makalah satu per satu.",
+    "Gaya IEEE: \"Lee et al. [3]\" tanpa tahun di dalam teks.",
     "Bandingkan pendekatan, temuan, dan keterbatasan studi terdahulu.",
     "Rujuk Tabel I (matriks gap).",
     "Akhiri dengan posisi penelitian ini terhadap gap.",
@@ -678,6 +694,8 @@ const GUIDE = {
     "Data: sumber, populasi atau sampel, cara pengumpulan (selaras dengan Open Data).",
     "Variabel atau instrumen dan cara mengukurnya.",
     "Teknik analisis serta alat atau perangkat lunak.",
+    "Studi komputasi/ML: dataset per kelas, anotasi, pembagian data tanpa kebocoran, baseline, metrik (mis. macro-F1).",
+    "Gambar alur penelitian (Gambar 1) dirujuk di teks.",
     "Etika penelitian bila melibatkan manusia.",
     "Cukup rinci agar bisa direplikasi.",
   ] },
@@ -690,6 +708,7 @@ const GUIDE = {
     "Semua angka dan kutipan informan tetap placeholder sampai analisis selesai; jangan dikarang.",
   ] },
   conclusion: { name: "V. Conclusion", points: [
+    "Satu sampai dua paragraf (± 200 kata), tidak mengulang pendahuluan.",
     "Jawaban ringkas atas tujuan penelitian.",
     "Kontribusi teoretis dan praktis.",
     "Keterbatasan penelitian.",
@@ -709,12 +728,19 @@ function autoChecks(key) {
     okIf(!/:/.test(state.me.title), "Tanpa subjudul", "Ada tanda titik dua; kemungkinan subjudul");
     okIf(!/[^\p{L}\p{N}\s,'’()&\-–]/u.test(state.me.title), "Tanpa simbol khusus", "Ada simbol atau karakter khusus");
   } else if (key === "keywords") {
-    const n = state.draft.keywords.split(",").map((x) => x.trim()).filter(Boolean).length;
+    const list = state.draft.keywords.split(",").map((x) => x.trim()).filter(Boolean);
+    const n = list.length;
     okIf(n >= 3 && n <= 6, `${n} istilah`, `${n} istilah (disarankan 3–6)`);
+    const t = state.me.title.toLowerCase();
+    const rep = list.filter((k) => k.split(/\s+/).every((w) => t.includes(w.toLowerCase()))).length;
+    if (n) okIf(rep <= 2, "Tidak sekadar mengulang judul", `${rep} kata kunci hanya mengulang kata di judul`);
+    const sorted = [...list].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+    if (n > 1) okIf(sorted.join("|") === list.join("|"), "Urut abjad", "Belum urut abjad");
   } else if (key === "abstract" && d) {
     const w = words(d.abstract);
     okIf(w >= 150 && w <= 250, `${w} kata`, `${w} kata (umumnya 150–250)`);
     okIf(citesIn(d.abstract).length === 0, "Tanpa sitasi", "Ada sitasi; hapus dari abstrak");
+    okIf(!/\b(department|study program|program studi|prodi|author team|tim penulis)\b/i.test(d.abstract), "Tidak menyebut tim/prodi", "Menyebut tim atau prodi; hapus dari abstrak");
     const ph = phIn(d.abstract); if (ph) out.push([false, `${ph} placeholder perlu diisi`]);
   } else if (d) {
     const i = SECTION_KEYS.indexOf(key);
@@ -723,7 +749,17 @@ function autoChecks(key) {
     out.push([true, `${words(text)} kata, ${(d.sections[i]?.paragraphs || []).length} paragraf`]);
     if (key === "intro") okIf(c >= 3, `${c} referensi dikutip`, `${c} referensi dikutip (disarankan ≥ 3)`);
     if (key === "related") { const need = Math.ceil(state.lit.selected.length / 2); okIf(c >= need, `${c} dari ${state.lit.selected.length} referensi dikutip`, `${c} dari ${state.lit.selected.length} referensi dikutip (disarankan ≥ ${need})`); }
-    if (key === "conclusion") okIf(c === 0, "Tanpa sitasi baru", `${c} sitasi; hindari sitasi baru di kesimpulan`);
+    if (key === "conclusion") {
+      okIf(c === 0, "Tanpa sitasi baru", `${c} sitasi; hindari sitasi baru di kesimpulan`);
+      okIf(words(text) <= 250, "Ringkas", `${words(text)} kata; ringkas menjadi ± 200 kata`);
+    }
+    if (key === "related") okIf(/\b(Table|Tabel) I\b/.test(text), "Tabel I dirujuk di teks", "Tabel I belum dirujuk di teks");
+    if (key === "intro") okIf(/\(1\)|\b(contributions?|kontribusi)\b/i.test(text), "Kontribusi dinyatakan", "Kontribusi belum dinyatakan eksplisit");
+    // Gaya IEEE: tahun tidak ditulis di teks (mis. "Lee et al. (2021) [3]").
+    const yearCites = (text.match(/\(\s?(19|20)\d{2}\s?\)\s?\[\d+\]/g) || []).length;
+    if (yearCites) out.push([false, `${yearCites} sitasi memakai tahun; gaya IEEE cukup "Nama et al. [n]"`]);
+    const hype = (text.match(/\b(unprecedented|paramount|crucial|groundbreaking|novel)\b/gi) || []).length;
+    if (hype) out.push([false, `${hype} kata berlebihan (mis. crucial, novel); pertimbangkan diganti`]);
     if (key === "results") {
       okIf(!/\d+(?:[.,]\d+)?\s?%|p\s?[<=>]\s?0?[.,]\d/.test(text.replace(PH_RE, "")), "Tidak ada angka hasil karangan", "Ada angka hasil; pastikan berasal dari analisis sendiri");
       okIf(c >= 2, `Pembahasan membandingkan dengan ${c} studi terdahulu`, `Pembahasan baru mengutip ${c} studi terdahulu (disarankan ≥ 2)`);
@@ -954,9 +990,10 @@ const actions = {
   "suggest-keywords": () => runTask("suggest-keywords", async () => {
     const r = await api("/api/llm", { task: "keywords", ...ctx(), prodi: lensProdi() });
     // Hanya lensa untuk rumpun yang terwakili di tim.
-    state.lit.suggestions = r.result.queries; state.lit.perProdi = r.result.perProdi || []; state.lit.concepts = r.result.concepts; noteModel(r);
+    state.lit.suggestions = r.result.queries; state.lit.novelty = r.result.novelty || ""; state.lit.perProdi = r.result.perProdi || []; state.lit.concepts = r.result.concepts; noteModel(r);
     if (!state.lit.query && r.result.queries[0]) state.lit.query = r.result.queries[0];
   }),
+  "use-novelty": () => runTask("search", () => doSearch(state.lit.novelty, "")),
   "use-query": (el) => runTask("search", () => doSearch(state.lit.suggestions[Number(el.dataset.i)], "")),
   "use-lens": (el) => {
     const x = state.lit.perProdi[Number(el.dataset.i)];
