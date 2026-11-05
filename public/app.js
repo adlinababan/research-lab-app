@@ -30,7 +30,16 @@ const CREDIT = {
   "writing—original draft": "penulisan—draf awal", "writing—review and editing": "penulisan—tinjauan dan penyuntingan",
 };
 
-const blankAuthor = () => ({ name: "", prodi: "", dept: "", faculty: "", org: "", city: "", email: "" });
+// Departemen = sekaligus teks tercetak dan rumpun untuk referensi lintas prodi. "\n" = ganti baris di blok penulis.
+const DEPTS = [
+  { key: "cs", label: "Computer Science Department", dept: "Computer Science Department", faculty: "School of Computer Science", prodi: "Computer Science" },
+  { key: "is", label: "Information Systems Department", dept: "Information Systems Department", faculty: "School of Information Systems", prodi: "Information Systems" },
+  { key: "db", label: "Digital Business Department", dept: "Digital Business Department", faculty: "BINUS Business School\nUndergraduate Program", prodi: "Digital Business" },
+  { key: "vcd", label: "Visual Communication Design Department", dept: "Visual Communication Design\nDepartment", faculty: "School of Design", prodi: "Visual Communication Design" },
+  { key: "it", label: "International Trade Department", dept: "International Trade Department", faculty: "BINUS Business School\nUndergraduate Program", prodi: "International Trade" },
+];
+const oneLine = (t) => String(t || "").replace(/\s*\n\s*/g, " ");
+const blankAuthor = () => ({ name: "", deptKey: "", prodi: "", dept: "", faculty: "", org: "", city: "", email: "" });
 const defaultState = () => ({
   step: 0,
   me: { lang: "en", title: "", aim: "", method: "", authors: [blankAuthor()] },
@@ -57,7 +66,14 @@ function load() {
     if (raw) {
       const s = deepMerge(defaultState(), JSON.parse(raw));
       s.me.authors = (s.me.authors.length ? s.me.authors : [blankAuthor()]).slice(0, MAX_AUTHORS).map((a) => ({ ...blankAuthor(), ...a }));
-      s.me.authors.forEach((a) => { a.prodi = fixProdi(a.prodi); });
+      s.me.authors.forEach((a) => {
+        a.prodi = fixProdi(a.prodi);
+        if (!a.deptKey) {
+          const d = DEPTS.find((x) => x.prodi === a.prodi);
+          if (d) Object.assign(a, { deptKey: d.key, dept: d.dept, faculty: d.faculty });
+          else if (a.dept) Object.assign(a, { deptKey: "other", prodi: a.prodi || a.dept.trim() });
+        }
+      });
       s.lit.selected.forEach((w) => { w.prodi = fixProdi(w.prodi || ""); });
       s.lit.lens = fixProdi(s.lit.lens || ""); s.lit.lastLens = fixProdi(s.lit.lastLens || "");
       s.gap.matrix?.rows?.forEach((r) => { r.cells = r.cells.map((c) => CELL_OLD[c] || c); });
@@ -125,7 +141,8 @@ function shortAuthors(a) {
 }
 const teamProdi = () => [...new Set(state.me.authors.map((a) => a.prodi).filter(Boolean))];
 const authorsNamed = () => state.me.authors.filter((a) => a.name.trim()).length;
-const authorsOk = () => state.me.authors.length >= 1 && authorsNamed() === state.me.authors.length;
+const authorDone = (a) => a.name.trim() && a.deptKey && (a.deptKey !== "other" || (a.dept.trim() && a.faculty.trim()));
+const authorsOk = () => state.me.authors.length >= 1 && state.me.authors.every(authorDone);
 const litProdi = () => [...new Set(state.lit.selected.map((w) => w.prodi).filter(Boolean))];
 const ctx = () => ({ title: state.me.title, aim: state.me.aim, prodi: teamProdi() });
 // Literatur hanya berdasar rumpun prodi yang terwakili di tim penulis.
@@ -148,7 +165,9 @@ function teamChips(present) {
     : `<span class="tag muted">${esc(p)}</span>`).join("")}</div>`;
 }
 function prodiChips(present, label) {
-  return `<div class="row" style="align-items:center;gap:6px"><span class="hint">${label}</span>${PRODI.map((p) => present.includes(p)
+  // Lima rumpun bawaan + rumpun "Other" yang diisi manual oleh penulis.
+  const all = [...PRODI, ...present.filter((p) => !PRODI.includes(p))];
+  return `<div class="row" style="align-items:center;gap:6px"><span class="hint">${label}</span>${all.map((p) => present.includes(p)
     ? `<span class="tag" style="background:var(--ok-tint);color:var(--ok)">✓ ${esc(p)}</span>`
     : `<span class="tag muted">${esc(p)}</span>`).join("")}</div>`;
 }
@@ -370,12 +389,14 @@ function viewMe() {
       <span class="author-n">${i + 1}</span>
       <div class="author-fields">
         <label class="field"><span>Nama lengkap *</span><input data-bind="me.authors.${i}.name" value="${esc(a.name)}" autocomplete="off" placeholder="Nama Anda"></label>
-        <label class="field"><span>Departemen / prodi (tercetak)</span><input data-bind="me.authors.${i}.dept" value="${esc(a.dept)}" placeholder="mis. Department of Management"></label>
-        <label class="field"><span>Fakultas / school</span><input data-bind="me.authors.${i}.faculty" value="${esc(a.faculty)}" placeholder="mis. Faculty of Economics and Business"></label>
+        <label class="field"><span>Departemen *</span><select data-act="dept-select" data-i="${i}"><option value="">Pilih departemen</option>${DEPTS.map((d) => `<option value="${d.key}" ${a.deptKey === d.key ? "selected" : ""}>${esc(d.label)}</option>`).join("")}<option value="other" ${a.deptKey === "other" ? "selected" : ""}>Other (isi manual)</option></select></label>
+        ${a.deptKey === "other"
+          ? `<label class="field"><span>Nama departemen / prodi *</span><input data-bind="me.authors.${i}.dept" value="${esc(a.dept)}" placeholder="mis. Department of Management"></label>
+        <label class="field"><span>Fakultas / school *</span><input data-bind="me.authors.${i}.faculty" value="${esc(a.faculty)}" placeholder="mis. Faculty of Economics and Business"></label>`
+          : `<label class="field"><span>Fakultas / school (otomatis)</span><input value="${esc(oneLine(a.faculty))}" readonly tabindex="-1" placeholder="Terisi setelah memilih departemen" class="readonly"></label>`}
         <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
         <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
         <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@kampus.ac.id"></label>
-        <label class="field"><span>Rumpun prodi / field (untuk referensi lintas prodi)</span><select data-bind="me.authors.${i}.prodi"><option value="">Pilih rumpun</option>${PRODI.map((p) => `<option ${a.prodi === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
       </div>
       ${m.authors.length > 1 ? `<button type="button" class="btn ghost small author-del" data-act="del-author" data-i="${i}" aria-label="Hapus penulis ${i + 1}">Hapus</button>` : "<span></span>"}
     </div>`).join("");
@@ -397,7 +418,7 @@ function viewMe() {
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3>Tim penulis <span class="counter" id="authorCount">${m.authors.length}/${MAX_AUTHORS}</span></h3>
-        ${m.authors.length > 1 ? '<button type="button" class="btn ghost small" data-act="copy-org">Salin fakultas, universitas, dan kota penulis 1 ke yang kosong</button>' : ""}
+        ${m.authors.length > 1 ? '<button type="button" class="btn ghost small" data-act="copy-org">Salin universitas dan kota penulis 1 ke yang kosong</button>' : ""}
       </div>
       <div id="prodiCover">${prodiChips(teamProdi(), "Rumpun prodi terwakili:")}</div>
       <p class="hint" style="margin:0">Maksimal ${MAX_AUTHORS} penulis. Urutan di sini menjadi urutan penulis di template IEEE (tiga penulis per baris). Baris yang kosong tidak dicetak.</p>
@@ -412,8 +433,7 @@ function meAlerts() {
   if (!state.me.title.trim()) a.push("Isi judul penelitian untuk melanjutkan.");
   if (!hasAiKey()) a.push("Tempel Research Lab key di bagian atas halaman ini.");
   if (!hasOpenAlexKey()) a.push("Tempel API key OpenAlex di bagian atas halaman ini.");
-  if (!teamProdi().length) a.push("Pilih rumpun prodi minimal untuk satu penulis. Saran literatur hanya diambil dari rumpun prodi yang terwakili.");
-  if (!authorsOk()) a.push(`Isi nama setiap penulis yang tercantum (${authorsNamed()}/${state.me.authors.length}), atau hapus baris yang tidak dipakai.`);
+  if (!authorsOk()) a.push(`Lengkapi nama dan departemen setiap penulis (${state.me.authors.filter(authorDone).length}/${state.me.authors.length} lengkap). Bila memilih Other, isi juga nama departemen dan fakultasnya.`);
   return a.map((t) => `<div class="alert warn">${t}</div>`).join("");
 }
 
@@ -583,7 +603,7 @@ function paperPreview() {
   if (!d) return '<div class="alert warn">Draf belum ada. Susun draf di langkah sebelumnya.</div>';
   const { order, map } = citationMap();
   const byN = new Map(state.lit.selected.map((w) => [w.n, w]));
-  const authors = state.me.authors.map((a) => `<div>${esc(a.name || "[Nama Penulis]")}${[a.dept, a.faculty, a.org].filter((x) => x.trim()).map((x) => `<i>${esc(x)}</i>`).join("")}${[a.city, a.email].filter((x) => x.trim()).map((x) => `${esc(x)}<br>`).join("")}</div>`).join("");
+  const authors = state.me.authors.map((a) => `<div>${esc(a.name || "[Nama Penulis]")}${[a.dept, a.faculty, a.org].filter((x) => x.trim()).map((x) => `<i>${esc(x).replace(/\n/g, "<br>")}</i>`).join("")}${[a.city, a.email].filter((x) => x.trim()).map((x) => `${esc(x)}<br>`).join("")}</div>`).join("");
   const m = state.gap.matrix;
   const matrix = m?.rows?.length ? `<div class="tcap">${isId() ? "Tabel I. Matriks Gap Studi Terdahulu" : "Table I. Gap Matrix of Reviewed Studies"}</div><table><tr><th>Ref.</th>${m.aspects.map((a) => `<th>${esc(a)}</th>`).join("")}</tr>${m.rows.filter((r) => map.has(r.n)).sort((a, b) => map.get(a.n) - map.get(b.n)).map((r) => `<tr><td>[${map.get(r.n)}]</td>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` : "";
   const ack = state.exp.ackEdited ? state.exp.ack : disclosure();
@@ -605,7 +625,7 @@ function paperPreview() {
 function contribCard() {
   const roles = Object.keys(CREDIT).map((r) => (isId() ? CREDIT[r] : r)).join("; ");
   const rows = state.me.authors.map((a, i) => `
-    <label class="field"><span>${i + 1}. ${esc(a.name || `Penulis ${i + 1}`)}${a.dept || a.prodi ? ` · ${esc(a.dept || a.prodi)}` : ""}</span>
+    <label class="field"><span>${i + 1}. ${esc(a.name || `Penulis ${i + 1}`)}${a.dept || a.prodi ? ` · ${esc(oneLine(a.dept || a.prodi))}` : ""}</span>
       <input data-act="contrib" data-i="${i}" value="${esc(state.exp.contrib[i] || "")}" placeholder="${isId() ? "mis. konseptualisasi, analisis penjualan e-commerce, penulisan—draf awal" : "e.g. conceptualization, e-commerce sales analysis, writing—original draft"}"></label>`).join("");
   return `
     <section class="card human">
@@ -730,8 +750,8 @@ const actions = {
   },
   "copy-org": () => {
     const a0 = state.me.authors[0];
-    state.me.authors.forEach((a, i) => { if (i > 0) { for (const k of ["faculty", "org", "city"]) if (!a[k]) a[k] = a0[k]; } });
-    save(); render(); toast("Fakultas, universitas, dan kota disalin ke penulis yang masih kosong.");
+    state.me.authors.forEach((a, i) => { if (i > 0) { for (const k of ["org", "city"]) if (!a[k]) a[k] = a0[k]; } });
+    save(); render(); toast("Universitas dan kota disalin ke penulis yang masih kosong.");
   },
   "suggest-keywords": () => runTask("suggest-keywords", async () => {
     const r = await api("/api/llm", { task: "keywords", ...ctx(), prodi: lensProdi() });
@@ -784,7 +804,7 @@ const actions = {
   "suggest-contrib": () => {
     if (state.exp.contrib.some((c) => c.trim()) && !window.confirm("Ganti isian kontribusi dengan saran AI?")) return;
     runTask("suggest-contrib", async () => {
-      const r = await api("/api/llm", { task: "contrib", title: state.me.title, aim: state.me.aim, method: state.me.method, lang: state.me.lang, authors: state.me.authors.map((a) => ({ name: a.name, prodi: [a.dept, a.prodi].filter(Boolean).join(" / ") })) });
+      const r = await api("/api/llm", { task: "contrib", title: state.me.title, aim: state.me.aim, method: state.me.method, lang: state.me.lang, authors: state.me.authors.map((a) => ({ name: a.name, prodi: a.prodi || oneLine(a.dept) })) });
       state.exp.contrib = state.me.authors.map((a, i) => {
         const s = r.result.authors[i] || { roles: [], tasks: [] };
         const roles = s.roles.map((x) => (isId() ? CREDIT[x] || x : x));
@@ -816,7 +836,7 @@ const actions = {
     const strip = (t) => String(t).replace(/\[(\d+)\]/g, (m, n) => (map.has(Number(n)) ? `[${map.get(Number(n))}]` : ""));
     const tmp = document.createElement("div");
     const refs = order.map((n, i) => { tmp.innerHTML = ieeeRefHtml(byN.get(n)); return `[${i + 1}] ${tmp.textContent}`; });
-    const text = [state.me.title, "", state.me.authors.map((a) => [a.name, a.dept, a.faculty, a.org, a.city, a.email].filter((x) => x.trim()).join(", ")).join("\n"), "",
+    const text = [state.me.title, "", state.me.authors.map((a) => [a.name, a.dept, a.faculty, a.org, a.city, a.email].map(oneLine).filter((x) => x.trim()).join(", ")).join("\n"), "",
       `Abstract—${d.abstract}`, `Keywords—${state.draft.keywords}`, "",
       ...d.sections.flatMap((s, i) => [`${["I", "II", "III", "IV", "V"][i]}. ${s.heading.toUpperCase()}`, ...s.paragraphs.map(strip), ""]),
       "ACKNOWLEDGMENT", state.exp.ackEdited ? state.exp.ack : disclosure(), "",
@@ -835,7 +855,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -845,6 +865,14 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); return; }
+  if (act === "dept-select") {
+    const a = state.me.authors[Number(el.dataset.i)];
+    const d = DEPTS.find((x) => x.key === el.value);
+    if (d) Object.assign(a, { deptKey: d.key, dept: d.dept, faculty: d.faculty, prodi: d.prodi });
+    else if (el.value === "other") Object.assign(a, { deptKey: "other", dept: a.deptKey === "other" ? a.dept : "", faculty: a.deptKey === "other" ? a.faculty : "", prodi: a.deptKey === "other" ? a.prodi : "" });
+    else Object.assign(a, { deptKey: "", dept: "", faculty: "", prodi: "" });
+    save(); render(); return;
+  }
   if (act === "model") { el.value = config?.lockedModel || el.value; return; }
   if (act === "lens") { state.lit.lens = el.value; save(); return; }
   if (act === "tag-prodi") {
@@ -883,6 +911,9 @@ document.addEventListener("input", (e) => {
     let v = el.value;
     if (el.type === "number") v = Number(v) || "";
     setPath(state, el.dataset.bind, v);
+    // Departemen "Other": nama departemen sekaligus menjadi rumpun untuk referensi lintas prodi.
+    const md = el.dataset.bind.match(/^me\.authors\.(\d+)\.dept$/);
+    if (md) { const au = state.me.authors[Number(md[1])]; if (au.deptKey === "other") au.prodi = oneLine(v).trim(); }
     // Judul diubah di langkah 1 = judul awal baru; saran judul lama tidak berlaku lagi.
     if (el.dataset.bind === "me.title" && state.step === 0) { state.draft.originalTitle = ""; state.draft.titleSugs = []; }
     save();

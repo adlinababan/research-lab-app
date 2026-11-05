@@ -188,6 +188,7 @@ table.matrix td.c { text-align: center; width: 104px; }
 .statement { font-family: var(--f-paper); font-size: 15px; line-height: 1.55; padding: 12px 14px; border-radius: 10px; background: var(--surface); border: 1px dashed var(--line); }
 .statement mark { background: var(--hl); color: inherit; }
 select option:disabled { color: var(--muted); }
+input.readonly { background: var(--bg); color: var(--muted); cursor: default; }
 @media (max-width: 1060px) {
   .author-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
