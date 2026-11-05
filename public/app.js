@@ -44,7 +44,7 @@ const oneLine = (t) => String(t || "").replace(/\s*\n\s*/g, " ");
 const blankAuthor = () => ({ name: "", deptKey: "", prodi: "", dept: "", faculty: "", org: "", city: "", email: "" });
 const defaultState = () => ({
   step: 0,
-  me: { lang: "en", title: "", aim: "", method: "", approach: "", dataAvail: "", authors: [blankAuthor()] },
+  me: { lang: "en", title: "", aim: "", method: "", approach: "", dataAvail: "", consent: false, authors: [blankAuthor()] },
   lit: { novelty: "", query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
   draft: { keywords: "", data: null, originalTitle: "", titleSugs: [], keywordSugs: [], guideChecks: {}, methodSugs: [], methodChosen: -1, methodApproach: "" },
@@ -301,7 +301,7 @@ function openDataStatement() {
 // ---------- status langkah ----------
 function stepDone(i) {
   switch (i) {
-    case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk() && teamProdi().length >= 1);
+    case 0: return Boolean(state.me.consent && state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk() && teamProdi().length >= 1);
     case 1: return state.lit.selected.length >= MIN_PAPERS && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
@@ -468,8 +468,8 @@ function viewMe() {
           ? `<label class="field"><span>Nama departemen / prodi *</span><input data-bind="me.authors.${i}.dept" value="${esc(a.dept)}" placeholder="mis. Department of Management"></label>
         <label class="field"><span>Fakultas / school *</span><input data-bind="me.authors.${i}.faculty" value="${esc(a.faculty)}" placeholder="mis. Faculty of Economics and Business"></label>`
           : `<label class="field"><span>Fakultas / school (otomatis)</span><input value="${esc(oneLine(a.faculty))}" readonly tabindex="-1" placeholder="Terisi setelah memilih departemen" class="readonly"></label>`}
-        <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
-        <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
+        <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Bina Nusantara University"></label>
+        <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Jakarta, Indonesia"></label>
         <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@binus.ac.id atau ORCID 0000-0000-0000-0000"></label>
         ${authorWarn(a)}
       </div>
@@ -477,6 +477,16 @@ function viewMe() {
     </div>`).join("");
   return `
     ${header(0, "Judul penelitian dan tim penulis", "Tulis judul Anda sendiri dan isi tim penulis (1–6 orang). Aplikasi akan mencarikan referensi lintas prodi di OpenAlex, membantu menemukan gap, lalu menyusun draf paper.")}
+    <section class="card disclaimer ${m.consent ? "ok" : ""}">
+      <h2>Disclaimer: ini latihan</h2>
+      <ul class="disc-list">
+        <li>Research Lab dipakai untuk <b>berlatih alur kerja</b>, bukan membuat naskah siap kirim.</li>
+        <li>Draf AI adalah <b>kerangka</b>: semua temuan masih [placeholder], dan AI bisa keliru.</li>
+        <li><b>Jangan langsung submit.</b> Tulis ulang dengan kata dan analisis sendiri, isi data asli, dan verifikasi setiap referensi.</li>
+        <li>Tanggung jawab ilmiah tetap pada penulis, sesuai prinsip FAITH BINUS dan kebijakan venue tujuan.</li>
+      </ul>
+      <label class="check-pill consent"><input type="checkbox" data-act="consent" ${m.consent ? "checked" : ""}>Saya memahami bahwa draf ini untuk latihan, bukan untuk langsung dikirim ke jurnal atau konferensi.</label>
+    </section>
     ${keyCard()}
     <section class="card human">
       <h2>Ide penelitian</h2>
@@ -964,6 +974,7 @@ function reviewCard() {
     <section class="card ai" id="reviewCard">
       <h2>Review sebagai reviewer IEEE</h2>
       <p class="hint" style="margin:0">AI membaca paper lengkap Anda, termasuk pernyataan AI, Open Contributionship, dan Open Data, seperti reviewer konferensi IEEE. Placeholder dianggap wajar karena data belum ada. AI tidak menjanjikan paper diterima.</p>
+      <div class="alert warn"><b>Review ini latihan, bukan peer review sungguhan.</b> Hasilnya membantu Anda belajar membaca draf seperti reviewer; keputusan venue tetap ditentukan editor dan reviewer manusia.</div>
       <div>${btn("review-draft", R ? "Review ulang draf terbaru" : "Review sebagai reviewer IEEE", { disabled: !d, busyLabel: "Mereview… (15–40 detik)" })}</div>
       ${errBox("review-draft")}
       ${promptViewer("review")}
@@ -1278,7 +1289,7 @@ const actions = {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    toast("File .docx diunduh. Bagian kuning wajib diisi sebelum dikirim.");
+    toast("Draf latihan diunduh. Tulis ulang, isi data asli, dan verifikasi sebelum digunakan.");
   }),
   "copy-text": async () => {
     const d = state.draft.data; if (!d) return;
@@ -1311,7 +1322,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1321,6 +1332,7 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); render(); return; }
+  if (act === "consent") { state.me.consent = el.checked; save(); render(); return; }
   if (act === "review-done") { state.review.done[Number(el.dataset.i)] = el.checked; save(); render(); return; }
   if (act === "approach") {
     if (state.me.approach !== el.value) { state.me.approach = el.value; state.draft.methodApproach = ""; }

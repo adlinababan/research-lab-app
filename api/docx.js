@@ -41,7 +41,7 @@ export default async function handler(req, res) {
       references: finalOrder.map((old) => ieeeReferenceParts(byN.get(old))),
     };
     const buf = buildDocx(paper);
-    const safe = (paper.title || "draf-paper").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 60) || "draf-paper";
+    const safe = "DRAF-LATIHAN-" + ((paper.title || "draf-paper").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 60) || "draf-paper");
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(safe)}.docx"`);
