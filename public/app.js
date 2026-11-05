@@ -15,6 +15,7 @@ const STEPS = [
   { title: "Matriks gap", sub: "Temukan celah riset" },
   { title: "Judul dan draf", sub: "Saran judul, draf paper" },
   { title: "Integritas dan ekspor", sub: "Kontribusi, data, .docx" },
+  { title: "Review IEEE", sub: "Reviewer, perbaikan" },
 ];
 const MAX_PAPERS = 30;
 const MIN_PAPERS = 15; // paper conference IEEE umumnya 15–30 referensi
@@ -304,6 +305,7 @@ function stepDone(i) {
     case 1: return state.lit.selected.length >= MIN_PAPERS && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
+    case 4: return Boolean(state.draft.data) && MANUAL_CHECKS.every(([k]) => state.exp.checks[k]) && Boolean(state.exp.od.type);
     default: return false;
   }
 }
@@ -336,7 +338,7 @@ function render() {
       <span class="step-text"><span class="step-title">${s.title}</span><br><span class="step-sub">${s.sub}</span></span>
     </button>`;
   }).join("");
-  const views = [viewMe, viewLiterature, viewGap, viewDraft, viewExport];
+  const views = [viewMe, viewLiterature, viewGap, viewDraft, viewExport, viewReview];
   $("#main").innerHTML = views[state.step]();
 }
 function header(i, title, lede) {
@@ -715,7 +717,7 @@ const GUIDE = {
     "Konteks dan pentingnya masalah, didukung sitasi.",
     "Gap dari literatur, dibandingkan dengan studi yang ditinjau (hindari klaim \"belum pernah ada penelitian\").",
     "Tujuan dan 1–3 pertanyaan penelitian.",
-    "Kontribusi dinyatakan eksplisit: (1), (2), (3).",
+    "2–4 kontribusi eksplisit (1), (2), (3), masing-masing terlacak ke Metode dan Hasil.",
     "Satu kalimat tentang susunan paper (Section II …).",
     "Tidak menyebut nama prodi atau departemen tim; sebut bidang ilmunya.",
   ] },
@@ -731,6 +733,7 @@ const GUIDE = {
     "Data: sumber, populasi atau sampel, cara pengumpulan (selaras dengan Open Data).",
     "Variabel atau instrumen dan cara mengukurnya.",
     "Teknik analisis serta alat atau perangkat lunak.",
+    "Urutan isi: desain, data/partisipan, pendekatan/sistem, setup evaluasi dan metrik, reproduksibilitas.",
     "Studi komputasi/ML: dataset per kelas, anotasi, pembagian data tanpa kebocoran, baseline, metrik (mis. macro-F1).",
     "Gambar alur penelitian (Gambar 1) dirujuk di teks.",
     "Etika penelitian bila melibatkan manusia.",
@@ -743,6 +746,7 @@ const GUIDE = {
     "Tunjukkan bagaimana temuan menjawab gap; sebutkan implikasi teoretis dan praktis.",
     "Sebutkan keterbatasan penelitian.",
     "Semua angka dan kutipan informan tetap placeholder sampai analisis selesai; jangan dikarang.",
+    "Jangan memakai kata “signifikan” tanpa uji statistik; bandingkan literatur hanya pada kondisi yang setara.",
   ] },
   conclusion: { name: "V. Conclusion", points: [
     "Satu sampai dua paragraf (± 200 kata), tidak mengulang pendahuluan.",
@@ -751,10 +755,85 @@ const GUIDE = {
     "Keterbatasan penelitian.",
     "Arah riset lanjutan.",
     "Tanpa sitasi baru dan tanpa informasi yang belum dibahas.",
+    "Jangan menyalin abstrak; tanpa angka atau klaim baru.",
   ] },
 };
 const citesIn = (t) => [...new Set([...String(t || "").matchAll(CITE_RE)].map((m) => Number(m[1])))];
 const phIn = (t) => (String(t || "").match(PH_RE) || []).length;
+// ---------- Peta struktur berwarna (komponen tiap bagian) ----------
+// [kunci, label, opsional, indeks warna]; warna sama untuk peran yang sama di semua bagian (gap merah, tujuan ungu, kontribusi hijau).
+const ROLES = {
+  abstract: [["background", "Latar", false, 0], ["gap", "Gap", false, 1], ["objective", "Tujuan", false, 2], ["method", "Metode", false, 3], ["results", "Hasil", false, 4], ["contribution", "Kontribusi", false, 5]],
+  intro: [["context", "Konteks", false, 0], ["problem", "Masalah", false, 4], ["gap", "Gap", false, 1], ["objective", "Tujuan dan RQ", false, 2], ["contribution", "Kontribusi", false, 5], ["organization", "Susunan paper", true, 3]],
+  related: [["theme", "Sintesis tema", false, 0], ["comparison", "Perbandingan", false, 3], ["positioning", "Posisi terhadap gap", false, 1]],
+  method: [["design", "Desain", false, 0], ["data", "Data/partisipan", false, 3], ["procedure", "Pendekatan/sistem", false, 2], ["evaluation", "Evaluasi dan metrik", false, 4], ["ethics", "Etika dan reproduksibilitas", true, 5]],
+  results: [["results", "Hasil", false, 4], ["comparison", "Banding literatur", false, 3], ["interpretation", "Interpretasi", false, 2], ["limitation", "Keterbatasan", false, 1]],
+  conclusion: [["answer", "Jawaban tujuan", false, 2], ["contribution", "Kontribusi", false, 5], ["limitation", "Keterbatasan", false, 1], ["future", "Riset lanjutan", false, 0]],
+};
+// Rekomendasi editorial panjang bagian untuk paper konferensi (abstrak 150–250 sesuai panduan IEEE).
+const WORD_TARGET = { abstract: [150, 250], intro: [400, 600], related: [250, 400], method: [700, 1000], results: [750, 1150], conclusion: [150, 200] };
+const tokSet = (t) => new Set(String(t || "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
+function overlap(a, b) {
+  const A = tokSet(a), B = tokSet(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const x of A) if (B.has(x)) n++;
+  return n / Math.min(A.size, B.size);
+}
+const normTxt = (t) => String(t || "").replace(/\s+/g, " ").trim();
+// Setelah disunting, setiap kalimat/paragraf diberi peran dari potongan asli AI yang paling mirip.
+function bestRole(text, orig) {
+  let best = { r: "", v: 0 };
+  for (const o of orig) { const v = overlap(text, o.text); if (v > best.v) best = { r: o.role, v }; }
+  return best.v >= 0.34 ? best.r : "";
+}
+function structList(key) {
+  const d = state.draft.data;
+  if (!d) return null;
+  if (key === "abstract") {
+    const parts = d.abstractParts || [];
+    if (!parts.some((p) => p.role)) return null;
+    if (normTxt(d.abstract) === normTxt(parts.map((p) => p.text).join(" "))) return parts;
+    const sents = normTxt(d.abstract).split(/(?<=[.!?])\s+(?=[A-Z\[])/).filter(Boolean);
+    return sents.map((t) => ({ text: t, role: bestRole(t, parts) }));
+  }
+  const i = SECTION_KEYS.indexOf(key);
+  const sec = d.sections[i];
+  if (!sec || !(sec.roles || []).some(Boolean)) return null;
+  const orig = (sec.orig || sec.paragraphs).map((t, k) => ({ text: t, role: sec.roles[k] || "" }));
+  if (sec.paragraphs.length === orig.length && sec.paragraphs.every((t, k) => normTxt(t) === normTxt(orig[k].text))) return orig;
+  return sec.paragraphs.map((t) => ({ text: t, role: bestRole(t, orig) }));
+}
+function missingRoles(key) {
+  const list = structList(key);
+  if (!list) return null;
+  const have = new Set(list.map((x) => x.role));
+  return ROLES[key].filter(([r, , opt]) => !opt && !have.has(r)).map(([, label]) => label);
+}
+function smapHtml(key) {
+  if (!state.draft.data || !ROLES[key]) return "";
+  const list = structList(key);
+  const roles = ROLES[key];
+  const ci = (r) => roles.find(([k]) => k === r)?.[3] ?? 0;
+  if (!list) return `<div class="smap-note hint">Peta struktur berwarna muncul pada draf yang disusun ulang dengan versi aplikasi terbaru.</div>`;
+  const have = new Set(list.map((x) => x.role));
+  const legend = roles.map(([r, label, opt, c]) => `<span class="sm-chip rc${c} ${have.has(r) ? "" : "sm-miss"}">${have.has(r) ? "✓" : "○"} ${esc(label)}${opt ? " (opsional)" : ""}</span>`).join("");
+  const label = (r) => roles.find(([k]) => k === r)?.[1] || "Belum ditandai";
+  const body = key === "abstract"
+    ? `<p class="sm-text">${list.map((x) => `<span class="sm-seg ${x.role ? `rc${ci(x.role)}` : "sm-none"}" title="${esc(label(x.role))}">${esc(x.text)}</span>`).join(" ")}</p>`
+    : list.map((x) => `<div class="sm-para ${x.role ? `rc${ci(x.role)}` : "sm-none"}"><span class="sm-tag">${esc(label(x.role))}</span>${esc(x.text)}</div>`).join("");
+  return `<details class="smap" id="smap-${key}" ${key === "abstract" ? "open" : ""}><summary><span class="sm-title">Peta struktur</span>${legend}</summary>${body}</details>`;
+}
+function updateSmap(key) {
+  const el = $(`#smap-${key}`);
+  if (!el) return;
+  const open = el.open;
+  el.outerHTML = smapHtml(key);
+  const nu = $(`#smap-${key}`); if (nu) nu.open = open;
+}
+function wordCheck(okIf, key, w) {
+  const t = WORD_TARGET[key]; if (!t) return;
+  okIf(w >= t[0] && w <= t[1], `${w} kata (rekomendasi ${t[0]}–${t[1]})`, `${w} kata; rekomendasi ${t[0]}–${t[1]}`);
+}
 function autoChecks(key) {
   const d = state.draft.data;
   const out = [];
@@ -776,6 +855,8 @@ function autoChecks(key) {
   } else if (key === "abstract" && d) {
     const w = words(d.abstract);
     okIf(w >= 150 && w <= 250, `${w} kata`, `${w} kata (umumnya 150–250)`);
+    const miss = missingRoles("abstract");
+    if (miss) okIf(!miss.length, "Semua komponen abstrak ada", `Belum ada: ${miss.join(", ")}`);
     okIf(citesIn(d.abstract).length === 0, "Tanpa sitasi", "Ada sitasi; hapus dari abstrak");
     okIf(!/\b(department|study program|program studi|prodi|author team|tim penulis)\b/i.test(d.abstract), "Tidak menyebut tim/prodi", "Menyebut tim atau prodi; hapus dari abstrak");
     const ph = phIn(d.abstract); if (ph) out.push([false, `${ph} placeholder perlu diisi`]);
@@ -783,7 +864,9 @@ function autoChecks(key) {
     const i = SECTION_KEYS.indexOf(key);
     const text = (d.sections[i]?.paragraphs || []).join("\n");
     const c = citesIn(text).length;
-    out.push([true, `${words(text)} kata, ${(d.sections[i]?.paragraphs || []).length} paragraf`]);
+    wordCheck(okIf, key, words(text));
+    const miss = missingRoles(key);
+    if (miss) okIf(!miss.length, "Semua komponen ada", `Belum ada: ${miss.join(", ")}`);
     if (key === "intro") okIf(c >= 3, `${c} referensi dikutip`, `${c} referensi dikutip (disarankan ≥ 3)`);
     if (key === "related") { const need = Math.ceil(state.lit.selected.length / 2); okIf(c >= need, `${c} dari ${state.lit.selected.length} referensi dikutip`, `${c} dari ${state.lit.selected.length} referensi dikutip (disarankan ≥ ${need})`); }
     if (key === "conclusion") {
@@ -825,6 +908,42 @@ function guided(key, fieldHtml) {
 function updateGuide(key) { const el = $(`#auto-${key}`); if (el) el.innerHTML = autoHtml(key); }
 
 // ---------- Review sebagai reviewer IEEE ----------
+const CHECK_LABELS = {
+  objective_answered: "Tujuan dijawab oleh hasil",
+  method_traceable: "Metode terlacak",
+  numbers_consistent: "Angka konsisten antarbagian",
+  contributions_supported: "Kontribusi didukung bukti",
+  references_support: "Referensi mendukung klaim",
+  no_template_text: "Tanpa sisa teks template",
+};
+function wordTable() {
+  const d = state.draft.data;
+  if (!d) return "";
+  const rows = [["Abstrak", "abstract", d.abstract], ...d.sections.map((x, i) => [`${["I", "II", "III", "IV", "V"][i]}. ${x.heading}`, SECTION_KEYS[i], x.paragraphs.join(" ")])];
+  return `<table class="wtable"><tr><th>Bagian</th><th>Kata</th><th>Rekomendasi</th><th>Status</th></tr>${rows.map(([name, key, text]) => {
+    const w = words(text), t = WORD_TARGET[key];
+    const st = !t ? "" : w < t[0] ? '<span class="rv-st rv-warn">!</span> kurang' : w > t[1] ? '<span class="rv-st rv-warn">!</span> lebih' : '<span class="rv-st rv-ok">✓</span> sesuai';
+    return `<tr><td>${esc(name)}</td><td>${w}</td><td>${t ? `${t[0]}–${t[1]}` : "–"}</td><td>${st}</td></tr>`;
+  }).join("")}</table>`;
+}
+function viewReview() {
+  return `
+    ${header(5, "Review sebagai reviewer IEEE", "AI mereview paper lengkap Anda seperti reviewer konferensi IEEE. Perbaiki temuan di Langkah 4 (draf) atau Langkah 5 (pernyataan), review ulang, lalu unduh ulang .docx.")}
+    <section class="card">
+      <h2>Panjang setiap bagian</h2>
+      <p class="hint" style="margin:0">Abstrak 150–250 kata mengikuti panduan IEEE. Rentang bagian lain adalah rekomendasi editorial untuk paper konferensi, bukan kuota wajib; ikuti batas halaman venue tujuan.</p>
+      ${wordTable()}
+    </section>
+    ${reviewCard()}
+    <section class="card human">
+      <h2>Tindak lanjut tim</h2>
+      <div class="row">
+        <button type="button" class="btn ghost" data-act="goto" data-i="3">Perbaiki draf (Langkah 4)</button>
+        <button type="button" class="btn ghost" data-act="goto" data-i="4">Perbaiki pernyataan dan unduh ulang (Langkah 5)</button>
+      </div>
+    </section>
+    ${navRow()}`;
+}
 const VERDICT = { "major revision": ["Major revision", "warn"], "minor revision": ["Minor revision", "info"], "ready after data": ["Siap setelah data diisi", "ok"] };
 function reviewCard() {
   const R = state.review.data;
@@ -844,13 +963,14 @@ function reviewCard() {
   return `
     <section class="card ai" id="reviewCard">
       <h2>Review sebagai reviewer IEEE</h2>
-      <p class="hint" style="margin:0">AI membaca draf Anda seperti reviewer konferensi IEEE: format, struktur setiap bagian, metode, pembahasan, dan referensi. Placeholder dianggap wajar karena data belum ada. Perbaiki draf di atas, lalu review ulang.</p>
+      <p class="hint" style="margin:0">AI membaca paper lengkap Anda, termasuk pernyataan AI, Open Contributionship, dan Open Data, seperti reviewer konferensi IEEE. Placeholder dianggap wajar karena data belum ada. AI tidak menjanjikan paper diterima.</p>
       <div>${btn("review-draft", R ? "Review ulang draf terbaru" : "Review sebagai reviewer IEEE", { disabled: !d, busyLabel: "Mereview… (15–40 detik)" })}</div>
       ${errBox("review-draft")}
       ${promptViewer("review")}
       ${R ? `
         <div class="alert ${v[1]}"><b>Rekomendasi: ${esc(v[0])}.</b> ${esc(R.summary)}</div>
         ${R.strengths.length ? `<div class="hint"><b>Kekuatan:</b> ${R.strengths.map(esc).join(" · ")}</div>` : ""}
+        ${(R.checks || []).length ? `<div class="rv-checks"><b>Pemeriksaan konsistensi</b><ul>${R.checks.map((c) => `<li><span class="rv-st rv-${c.status}">${c.status === "ok" ? "✓" : c.status === "fail" ? "✗" : "!"}</span><span><b>${esc(CHECK_LABELS[c.id] || c.id)}</b>${c.note ? ` · ${esc(c.note)}` : ""}</span></li>`).join("")}</ul></div>` : ""}
         <div class="hint">${R.findings.filter((f) => f.severity === "major").length} major, ${R.findings.filter((f) => f.severity === "minor").length} minor · ${doneN} dari ${R.findings.length} ditandai sudah diperbaiki</div>
         <ul class="rv-list">${list}</ul>` : ""}
     </section>`;
@@ -871,12 +991,12 @@ function promptViewer(task) {
 function viewDraft() {
   const d = state.draft.data;
   const editor = d ? `
-    ${guided("abstract", `<label class="field"><span>${isId() ? "Abstrak" : "Abstract"}</span><textarea class="paper" data-act="edit-abstract" rows="9">${esc(d.abstract)}</textarea></label>`)}
-    ${d.sections.map((s, i) => guided(SECTION_KEYS[i] || "intro", `<label class="field"><span>${["I", "II", "III", "IV", "V"][i] || i + 1}. ${esc(s.heading)}</span><textarea class="paper" data-act="edit-section" data-i="${i}" rows="${Math.max(10, Math.min(22, 4 + s.paragraphs.join(" ").length / 110 | 0))}">${esc(s.paragraphs.join("\n\n"))}</textarea></label>`)).join("")}
+    ${guided("abstract", `<label class="field"><span>${isId() ? "Abstrak" : "Abstract"}</span><textarea class="paper" data-act="edit-abstract" rows="9">${esc(d.abstract)}</textarea></label>${smapHtml("abstract")}`)}
+    ${d.sections.map((s, i) => guided(SECTION_KEYS[i] || "intro", `<label class="field"><span>${["I", "II", "III", "IV", "V"][i] || i + 1}. ${esc(s.heading)}</span><textarea class="paper" data-act="edit-section" data-i="${i}" rows="${Math.max(10, Math.min(22, 4 + s.paragraphs.join(" ").length / 110 | 0))}">${esc(s.paragraphs.join("\n\n"))}</textarea></label>${smapHtml(SECTION_KEYS[i])}`)).join("")}
     <p class="hint">Pisahkan paragraf dengan satu baris kosong. Sitasi ditulis [nomor] sesuai daftar referensi terpilih; penomoran IEEE dirapikan otomatis saat ekspor. Teks dalam [kurung siku] lain adalah placeholder yang wajib diisi dari data atau analisis tim.</p>` : "";
   const canDraft = state.me.title.trim() && state.gap.text.trim() && state.lit.selected.length >= 2;
   return `
-    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci dan rencana metode, lalu susun draf. Draf adalah rencana penelitian: belum ada hasil, jadi semua angka hasil ditulis sebagai placeholder.")}
+    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci dan rencana metode, lalu susun draf. Draf ditulis seperti paper jadi; karena data belum ada, semua temuan dan angka ditulis sebagai [placeholder]. Warna di bawah setiap bagian menunjukkan komponen struktur IEEE-nya.")}
     ${titleCard()}
     <section class="card human">
       <h2>Keputusan tim: judul dan kata kunci final</h2>
@@ -895,7 +1015,6 @@ function viewDraft() {
       <div id="draftStats">${draftStats()}</div>
       ${editor}
     </section>
-    ${d ? reviewCard() : ""}
     ${navRow("Lanjut ke integritas dan ekspor")}`;
 }
 
@@ -1021,7 +1140,7 @@ function viewExport() {
       ${!manualOk || !state.exp.od.type ? '<p class="hint">Tombol unduh aktif setelah jenis data Open Data dipilih dan semua butir checklist manual dicentang.</p>' : ""}
       ${errBox("export-docx")}
     </section>
-    ${navRow()}`;
+    ${navRow("Lanjut ke review IEEE")}`;
 }
 
 // ---------- aksi ----------
@@ -1109,6 +1228,8 @@ const actions = {
       sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs.map(renum) })),
       references: refs,
       authors: state.me.authors.map((a) => ({ name: a.name, dept: oneLine(a.dept), faculty: oneLine(a.faculty), org: a.org, city: a.city, email: a.email })),
+      acknowledgment: state.exp.ackEdited ? state.exp.ack : disclosure(),
+      contributionship: contribStatement(), openData: openDataStatement(),
     });
     state.review.data = r.result; state.review.done = []; noteModel(r);
   }),
@@ -1125,6 +1246,7 @@ const actions = {
       const r = await api("/api/llm", {
         task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(),
       });
+      r.result.sections.forEach((x) => { x.orig = [...x.paragraphs]; });
       state.draft.data = r.result;
       if (!state.draft.keywords.trim() && r.result.keywords?.length) state.draft.keywords = r.result.keywords.join(", ");
       noteModel(r);
@@ -1282,10 +1404,10 @@ document.addEventListener("input", (e) => {
   }
   const act = el.dataset?.act;
   if (act === "aspect") { state.gap.matrix.aspects[Number(el.dataset.i)] = el.value; save(); return; }
-  if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); updateGuide("abstract"); return; }
+  if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); updateGuide("abstract"); updateSmap("abstract"); return; }
   if (act === "edit-section") {
     state.draft.data.sections[Number(el.dataset.i)].paragraphs = el.value.split(/\n\s*\n/).map((s) => s.replace(/\s*\n\s*/g, " ").trim()).filter(Boolean);
-    save(); updateStats(); updateGuide(SECTION_KEYS[Number(el.dataset.i)]); return;
+    save(); updateStats(); updateGuide(SECTION_KEYS[Number(el.dataset.i)]); updateSmap(SECTION_KEYS[Number(el.dataset.i)]); return;
   }
   if (act === "ack") { state.exp.ack = el.value; state.exp.ackEdited = true; save(); return; }
   if (act === "contrib") {

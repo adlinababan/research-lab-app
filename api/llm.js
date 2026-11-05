@@ -7,10 +7,10 @@ const TASKS = {
   keywords: { build: keywordsPrompt, clean: (j, b) => cleanKeywords(j, b), temperature: 0.3, maxTokens: 800 },
   gap: { build: gapPrompt, clean: (j, b) => cleanGap(j, (b.papers || []).map((w) => Number(w.n))), temperature: 0.2, maxTokens: 6000 },
   titles: { build: titlesPrompt, clean: (j) => cleanTitles(j), temperature: 0.6, maxTokens: 1200 },
-  review: { build: reviewPrompt, clean: (j) => cleanReview(j), temperature: 0.2, maxTokens: 3500 },
+  review: { build: reviewPrompt, clean: (j) => cleanReview(j), temperature: 0.2, maxTokens: 4500 },
   method: { build: methodPrompt, clean: (j, b) => cleanMethod(j, b), temperature: 0.5, maxTokens: 1800 },
   contrib: { build: contribPrompt, clean: (j, b) => cleanContrib(j, b), temperature: 0.3, maxTokens: 1500 },
-  draft: { build: draftPrompt, clean: (j, b) => cleanDraft(j, (b.papers || []).map((w) => Number(w.n)), b.lang), temperature: 0.4, maxTokens: 10000 },
+  draft: { build: draftPrompt, clean: (j, b) => cleanDraft(j, (b.papers || []).map((w) => Number(w.n)), b.lang), temperature: 0.4, maxTokens: 12000 },
 };
 
 export default async function handler(req, res) {
