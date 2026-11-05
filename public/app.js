@@ -224,7 +224,7 @@ function keyCard() {
         </ol></details>
       <div class="grid2">
         <label class="field"><span>API key OpenRouter atau Gemini</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-ai" value="${esc(k.ai)}" placeholder="sk-or-… atau AIza…"></label>
-        <label class="field"><span>API key OpenAlex (opsional)</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="Kosongkan bila tidak punya"></label>
+        <label class="field"><span>API key OpenAlex ${config?.openalexKey ? "(opsional, server sudah punya)" : "(sangat disarankan)"}</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="${config?.openalexKey ? "Kosongkan bila tidak punya" : "Tempel key dari openalex.org/settings/api"}"></label>
       </div>
       ${modelPicker()}
       <div class="row" style="align-items:center">
