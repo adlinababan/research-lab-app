@@ -181,6 +181,8 @@ table.matrix td.c { text-align: center; width: 104px; }
 .author-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--human); border: 2px solid var(--human); margin-top: 20px; }
 .author-del { margin-top: 20px; }
 .author-row .field > span { font-size: 12px; }
+.author-warn { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
+.author-warn .alert { font-size: 13px; padding: 8px 10px; }
 .lens-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .lens-btn { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
 .lens-btn:hover { border-color: var(--ai); }
@@ -243,3 +245,15 @@ input.readonly { background: var(--bg); color: var(--muted); cursor: default; }
 .check-pill.approach { align-items: flex-start; border-radius: 10px; padding: 10px 12px; height: 100%; }
 .check-pill.approach span { display: flex; flex-direction: column; gap: 2px; }
 .check-pill.approach small { color: var(--muted); font-size: 12.5px; line-height: 1.35; font-weight: 400; }
+
+/* Review sebagai reviewer IEEE */
+.rv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rv-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); font-size: 14px; line-height: 1.45; }
+.rv-item input { margin-top: 3px; accent-color: var(--human); }
+.rv-item > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rv-head { display: flex; align-items: center; gap: 8px; }
+.rv-quote { color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+.rv-fix { color: var(--ink); }
+.rv-done { opacity: .6; }
+.rv-major { background: var(--err-tint); color: var(--err); }
+.rv-minor { background: var(--warn-tint, #FFF4DB); color: var(--warn); }

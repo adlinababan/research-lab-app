@@ -16,7 +16,8 @@ const STEPS = [
   { title: "Judul dan draf", sub: "Saran judul, draf paper" },
   { title: "Integritas dan ekspor", sub: "Kontribusi, data, .docx" },
 ];
-const MAX_PAPERS = 15;
+const MAX_PAPERS = 30;
+const MIN_PAPERS = 15; // paper conference IEEE umumnya 15–30 referensi
 const STORE_KEY = "research-lab-state-v3";
 const CODE_KEY = "research-lab-access";
 const KEYS_KEY = "research-lab-keys-v2"; // API key pengguna: hanya di browser ini, tidak ikut ekspor .json
@@ -49,9 +50,10 @@ const defaultState = () => ({
   exp: {
     ack: "", ackEdited: false, checks: {},
     contrib: [""], contribAi: false,
-    od: { type: "third", name: "", source: "", url: "", reason: "" },
+    od: { type: "", name: "", source: "", url: "", reason: "" },
   },
   meta: { model: "", label: "" },
+  review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -274,6 +276,7 @@ function contribStatement() {
 }
 function openDataStatement() {
   const o = state.exp.od;
+  if (!o.type) return isId() ? "[Pilih jenis data di bagian Open Data]" : "[Choose the data type in the Open Data section]";
   const ph = (v, en, id) => (v.trim() ? v.trim() : `[${isId() ? id : en}]`);
   const name = ph(o.name, "dataset name", "nama dataset");
   const source = ph(o.source, "repository or provider", "repositori atau penyedia");
@@ -298,7 +301,7 @@ function openDataStatement() {
 function stepDone(i) {
   switch (i) {
     case 0: return Boolean(state.me.title.trim() && hasAiKey() && hasOpenAlexKey() && authorsOk() && teamProdi().length >= 1);
-    case 1: return state.lit.selected.length >= 3 && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
+    case 1: return state.lit.selected.length >= MIN_PAPERS && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
     default: return false;
@@ -418,6 +421,23 @@ function keyCard() {
     </section>`;
 }
 
+// Peringatan isian penulis (format IEEE): kota tanpa negara, atau afiliasi berbahasa Indonesia di naskah berbahasa Inggris.
+const ID_WORDS = /\b(jurusan|fakultas|program studi|prodi|teknologi|teknik|rekayasa|perangkat|lunak|sistem|informatika|ilmu|komputer|bisnis|desain|perdagangan|manajemen|ekonomi|akuntansi|dan)\b/i;
+function authorIssues(a) {
+  const out = [];
+  if (a.city.trim() && !a.city.includes(",")) out.push(`Kota belum memuat negara: tulis "${a.city.trim()}, Indonesia".`);
+  if (!isId()) {
+    // Nama institusi (mis. "Politeknik Negeri Medan") boleh tetap dalam bahasa aslinya.
+    const bad = [["departemen", a.dept], ["fakultas", a.faculty]].filter(([, v]) => ID_WORDS.test(String(v || ""))).map(([k]) => k);
+    if (bad.length) out.push(`Naskah berbahasa Inggris, tetapi ${bad.join(", ")} masih berbahasa Indonesia. Pakai nama resmi berbahasa Inggris, mis. "Department of Computer and Informatics Engineering". Nama institusi boleh tetap.`);
+  }
+  return out;
+}
+function authorWarn(a) {
+  const w = authorIssues(a);
+  return `<div class="author-warn" ${w.length ? "" : "hidden"}>${w.map((t) => `<div class="alert warn">${esc(t)}</div>`).join("")}</div>`;
+}
+
 // ---------- Langkah 1 ----------
 function viewMe() {
   const m = state.me;
@@ -434,6 +454,7 @@ function viewMe() {
         <label class="field"><span>Universitas / institusi</span><input data-bind="me.authors.${i}.org" value="${esc(a.org)}" placeholder="mis. Universitas Sumatera Utara"></label>
         <label class="field"><span>Kota, negara</span><input data-bind="me.authors.${i}.city" value="${esc(a.city)}" placeholder="mis. Medan, Indonesia"></label>
         <label class="field"><span>Email atau ORCID</span><input data-bind="me.authors.${i}.email" value="${esc(a.email)}" placeholder="nama@binus.ac.id atau ORCID 0000-0000-0000-0000"></label>
+        ${authorWarn(a)}
       </div>
       ${m.authors.length > 1 ? `<button type="button" class="btn ghost small author-del" data-act="del-author" data-i="${i}" aria-label="Hapus penulis ${i + 1}">Hapus</button>` : "<span></span>"}
     </div>`).join("");
@@ -532,9 +553,10 @@ function viewLiterature() {
     <section class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3>Referensi terpilih <span class="counter">${L.selected.length}</span> / ${MAX_PAPERS}</h3>
-        <span class="hint">Minimal 3 referensi${needLitProdi() > 1 ? ` dari minimal ${needLitProdi()} rumpun tim` : ""}; disarankan 5–10 referensi yang mencakup semua rumpun tim.</span>
+        <span class="hint">Wajib minimal ${MIN_PAPERS} referensi${needLitProdi() > 1 ? ` dari minimal ${needLitProdi()} rumpun tim` : ""} (paper IEEE umumnya 15–30); pilih yang benar-benar relevan dengan judul.</span>
       </div>
       ${teamChips(litProdi())}
+      ${L.selected.length < MIN_PAPERS ? `<div class="alert warn">Baru ${L.selected.length} referensi; tambah ${MIN_PAPERS - L.selected.length} lagi untuk lanjut. Coba kata kunci irisan, lensa per rumpun, dan Cek kebaruan.</div>` : ""}
       ${L.selected.length ? `<ul class="selected-list">${sel}</ul>` : '<p class="hint">Belum ada. Centang makalah dari hasil pencarian.</p>'}
     </section>
     ${L.searched ? `<section class="card"><h3>Hasil pencarian${L.lastLens ? ` · lensa ${esc(L.lastLens)}` : ""} <span class="hint">(${L.results.length} ditampilkan dari ±${Number(L.total).toLocaleString("id-ID")})</span></h3><div class="results">${list || '<p class="hint">Tidak ada hasil. Coba kata kunci lain.</p>'}</div></section>` : ""}
@@ -787,6 +809,38 @@ function guided(key, fieldHtml) {
 }
 function updateGuide(key) { const el = $(`#auto-${key}`); if (el) el.innerHTML = autoHtml(key); }
 
+// ---------- Review sebagai reviewer IEEE ----------
+const VERDICT = { "major revision": ["Major revision", "warn"], "minor revision": ["Minor revision", "info"], "ready after data": ["Siap setelah data diisi", "ok"] };
+function reviewCard() {
+  const R = state.review.data;
+  const d = state.draft.data;
+  const doneN = R ? R.findings.filter((_, i) => state.review.done[i]).length : 0;
+  const list = R ? R.findings.map((f, i) => `
+    <li class="rv-item ${state.review.done[i] ? "rv-done" : ""}">
+      <input type="checkbox" id="rv-${i}" data-act="review-done" data-i="${i}" ${state.review.done[i] ? "checked" : ""} aria-label="Tandai sudah diperbaiki">
+      <div>
+        <div class="rv-head"><span class="tag ${f.severity === "major" ? "rv-major" : "rv-minor"}">${f.severity === "major" ? "Major" : "Minor"}</span><b>${esc(f.section)}</b></div>
+        ${f.quote ? `<div class="rv-quote">“${esc(f.quote)}”</div>` : ""}
+        <div>${esc(f.issue)}</div>
+        <div class="rv-fix"><b>Saran:</b> ${esc(f.suggestion)}</div>
+      </div>
+    </li>`).join("") : "";
+  const v = R ? VERDICT[R.verdict] || VERDICT["major revision"] : null;
+  return `
+    <section class="card ai" id="reviewCard">
+      <h2>Review sebagai reviewer IEEE</h2>
+      <p class="hint" style="margin:0">AI membaca draf Anda seperti reviewer konferensi IEEE: format, struktur setiap bagian, metode, pembahasan, dan referensi. Placeholder dianggap wajar karena data belum ada. Perbaiki draf di atas, lalu review ulang.</p>
+      <div>${btn("review-draft", R ? "Review ulang draf terbaru" : "Review sebagai reviewer IEEE", { disabled: !d, busyLabel: "Mereview… (15–40 detik)" })}</div>
+      ${errBox("review-draft")}
+      ${promptViewer("review")}
+      ${R ? `
+        <div class="alert ${v[1]}"><b>Rekomendasi: ${esc(v[0])}.</b> ${esc(R.summary)}</div>
+        ${R.strengths.length ? `<div class="hint"><b>Kekuatan:</b> ${R.strengths.map(esc).join(" · ")}</div>` : ""}
+        <div class="hint">${R.findings.filter((f) => f.severity === "major").length} major, ${R.findings.filter((f) => f.severity === "minor").length} minor · ${doneN} dari ${R.findings.length} ditandai sudah diperbaiki</div>
+        <ul class="rv-list">${list}</ul>` : ""}
+    </section>`;
+}
+
 // ---------- Prompt AI (transparansi untuk pembelajaran) ----------
 function promptViewer(task) {
   const p = state.prompts?.[task];
@@ -826,6 +880,7 @@ function viewDraft() {
       <div id="draftStats">${draftStats()}</div>
       ${editor}
     </section>
+    ${d ? reviewCard() : ""}
     ${navRow("Lanjut ke integritas dan ekspor")}`;
 }
 
@@ -877,7 +932,7 @@ function openDataCard() {
   const o = state.exp.od;
   const opt = (v, label) => `<label class="check-pill"><input type="radio" name="odtype" data-act="od-type" value="${v}" ${o.type === v ? "checked" : ""}>${label}</label>`;
   const f = (key, label, ph) => `<label class="field"><span>${label}</span><input data-bind="exp.od.${key}" data-live="od" value="${esc(o[key])}" placeholder="${ph}"></label>`;
-  const fields = o.type === "third"
+  const fields = !o.type ? '<div class="alert warn">Pilih dulu jenis data yang sesuai dengan Metode Anda. Pernyataan Open Data harus konsisten dengan bagian Metode.</div>' : o.type === "third"
     ? `<div class="grid3">${f("name", "Nama dataset", "mis. MIT-BIH Arrhythmia Database")}${f("source", "Penyedia / repositori", "mis. PhysioNet")}${f("url", "URL atau DOI", "https://…")}</div>`
     : o.type === "own"
       ? `<div class="grid2">${f("source", "Repositori tempat data dibagikan", "mis. Zenodo, Mendeley Data, Figshare")}${f("url", "URL atau DOI dataset", "https://doi.org/…")}</div>`
@@ -888,7 +943,7 @@ function openDataCard() {
       <p class="hint" style="margin:0">Nyatakan sumber dan ketersediaan data. Isi dengan data yang benar-benar dipakai atau direncanakan; kolom kosong muncul sebagai placeholder kuning.</p>
       <div class="checks">${opt("third", "Memakai dataset terbuka pihak lain")}${opt("own", "Data sendiri, dibagikan terbuka")}${opt("restricted", "Data tidak dapat dibagikan")}</div>
       ${fields}
-      <div class="statement" id="odPreview">${renderRich(openDataStatement(), null)}</div>
+      ${o.type ? `<div class="statement" id="odPreview">${renderRich(openDataStatement(), null)}</div>` : ""}
     </section>`;
 }
 
@@ -910,13 +965,18 @@ function viewExport() {
   const manualOk = MANUAL_CHECKS.every(([k]) => state.exp.checks[k]);
   const contribFilled = state.exp.contrib.filter((c) => c.trim()).length;
   const odPh = (openDataStatement().match(PH_RE) || []).length;
+  // Nomor IEEE (urutan kemunculan) untuk referensi tanpa volume dan halaman.
+  const incompleteRefs = order.map((n, i) => [i + 1, state.lit.selected.find((w) => w.n === n)]).filter(([, w]) => w && !w.volume && !w.firstPage).map(([i]) => i);
   const refProdi = new Set(order.map((n) => state.lit.selected.find((w) => w.n === n)?.prodi).filter(Boolean)).size;
   const auto = [
     [order.length > 0, `${order.length} referensi dari OpenAlex, semuanya ber-DOI, mewakili ${refProdi} prodi.`],
     [true, "Sitasi di luar daftar referensi terpilih sudah dibuang otomatis."],
     [Boolean(ack.trim()), "Pernyataan penggunaan AI ada di bagian Acknowledgment (sesuai kebijakan IEEE)."],
     [contribFilled === state.me.authors.length, `Open Contributionship terisi untuk ${contribFilled} dari ${state.me.authors.length} penulis.`],
+    [Boolean(state.exp.od.type), state.exp.od.type ? "Jenis data Open Data sudah dipilih." : "Jenis data Open Data belum dipilih."],
     [odPh === 0, odPh ? `Pernyataan Open Data masih memiliki ${odPh} placeholder.` : "Pernyataan Open Data lengkap."],
+    [order.length >= MIN_PAPERS, order.length >= MIN_PAPERS ? `${order.length} referensi dikutip (minimal ${MIN_PAPERS}).` : `Baru ${order.length} referensi dikutip; paper IEEE umumnya minimal ${MIN_PAPERS}.`],
+    [incompleteRefs.length === 0, incompleteRefs.length ? `${incompleteRefs.length} referensi belum lengkap (volume/nomor/halaman): ${incompleteRefs.map((n) => `[${n}]`).join(", ")}. Lengkapi dari halaman DOI-nya.` : "Semua referensi memiliki volume atau halaman."],
     [ph === 0, ph ? `${ph} placeholder di isi naskah masih perlu diisi setelah analisis (ditandai kuning di .docx).` : "Tidak ada placeholder tersisa di isi naskah."],
   ];
   return `
@@ -939,11 +999,11 @@ function viewExport() {
     </section>
     <section class="card">
       <div class="row">
-        ${btn("export-docx", "Unduh .docx (template IEEE)", { kind: "primary", disabled: !d || !manualOk, busyLabel: "Menyiapkan .docx…" })}
+        ${btn("export-docx", "Unduh .docx (template IEEE)", { kind: "primary", disabled: !d || !manualOk || !state.exp.od.type, busyLabel: "Menyiapkan .docx…" })}
         <button type="button" class="btn ghost" data-act="copy-text" ${d ? "" : "disabled"}>Salin teks draf</button>
         <button type="button" class="btn ghost" data-act="export-json">Unduh data sesi (.json)</button>
       </div>
-      ${!manualOk ? '<p class="hint">Tombol unduh aktif setelah semua butir checklist manual dicentang.</p>' : ""}
+      ${!manualOk || !state.exp.od.type ? '<p class="hint">Tombol unduh aktif setelah jenis data Open Data dipilih dan semua butir checklist manual dicentang.</p>' : ""}
       ${errBox("export-docx")}
     </section>
     ${navRow()}`;
@@ -1022,6 +1082,21 @@ const actions = {
     const r = await api("/api/llm", { task: "method", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(false), matrix: state.gap.matrix, approach: state.me.approach, dataAvail: state.me.dataAvail });
     state.draft.methodSugs = r.result.options; state.draft.methodChosen = -1; noteModel(r);
   }),
+  "review-draft": () => runTask("review-draft", async () => {
+    const d = state.draft.data;
+    const { order } = citationMap();
+    const refs = order.map((n, i) => { const w = state.lit.selected.find((x) => x.n === n); return w ? { n: i + 1, title: w.title, year: w.year, venue: w.venue, complete: Boolean(w.volume || w.firstPage) } : null; }).filter(Boolean);
+    // Teks dikirim dengan nomor sitasi IEEE final (urutan kemunculan), sama dengan .docx.
+    const renum = (t) => String(t || "").replace(CITE_RE, (m, n) => { const k = order.indexOf(Number(n)); return k >= 0 ? `[${k + 1}]` : m; });
+    const r = await api("/api/llm", {
+      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(),
+      abstract: d.abstract, keywords: state.draft.keywords,
+      sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs.map(renum) })),
+      references: refs,
+      authors: state.me.authors.map((a) => ({ name: a.name, dept: oneLine(a.dept), faculty: oneLine(a.faculty), org: a.org, city: a.city, email: a.email })),
+    });
+    state.review.data = r.result; state.review.done = []; noteModel(r);
+  }),
   "add-keyword": (el) => {
     const k = state.draft.keywordSugs[Number(el.dataset.i)];
     const list = state.draft.keywords.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1099,7 +1174,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1108,7 +1183,8 @@ document.addEventListener("click", (e) => {
 document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
-  if (act === "lang") { state.me.lang = el.value; save(); return; }
+  if (act === "lang") { state.me.lang = el.value; save(); render(); return; }
+  if (act === "review-done") { state.review.done[Number(el.dataset.i)] = el.checked; save(); render(); return; }
   if (act === "approach") {
     if (state.me.approach !== el.value) { state.me.approach = el.value; state.draft.methodApproach = ""; }
     save(); render(); return;
@@ -1178,6 +1254,8 @@ document.addEventListener("input", (e) => {
     // Departemen "Other": nama departemen sekaligus menjadi rumpun untuk referensi lintas prodi.
     const md = el.dataset.bind.match(/^me\.authors\.(\d+)\.dept$/);
     if (md) { const au = state.me.authors[Number(md[1])]; if (au.deptKey === "other") au.prodi = oneLine(v).trim(); }
+    const ma = el.dataset.bind.match(/^me\.authors\.(\d+)\./);
+    if (ma) { const box = document.querySelectorAll(".author-row")[Number(ma[1])]?.querySelector(".author-warn"); if (box) box.outerHTML = authorWarn(state.me.authors[Number(ma[1])]); }
     // Judul diubah di langkah 1 = judul awal baru; saran judul lama tidak berlaku lagi.
     if (el.dataset.bind === "me.title" && state.step === 0) { state.draft.originalTitle = ""; state.draft.titleSugs = []; }
     save();
