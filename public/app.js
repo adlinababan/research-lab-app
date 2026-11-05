@@ -61,6 +61,10 @@ function setKeys(k) {
   memKeys = { ai: (k.ai || "").trim(), openalex: (k.openalex || "").trim() };
   try { localStorage.setItem(KEYS_KEY, JSON.stringify(memKeys)); } catch {}
 }
+const MODEL_KEY = "research-lab-model";
+function getModel() { try { return localStorage.getItem(MODEL_KEY) || ""; } catch { return ""; } }
+function setModel(v) { try { localStorage.setItem(MODEL_KEY, v); } catch {} }
+function usesOpenRouter() { return keyKind(getKeys().ai) === "OpenRouter" || (!getKeys().ai && config?.llm?.label === "OpenRouter"); }
 function clearKeys() { memKeys = { ai: "", openalex: "" }; try { localStorage.removeItem(KEYS_KEY); } catch {} }
 function keyKind(k) { return k.startsWith("sk-or-") ? "OpenRouter" : k.startsWith("AIza") ? "Gemini" : k ? "tidak dikenal" : ""; }
 function serverHasKey() { return Boolean(config && (config.mock || config.llm?.configured)); }
@@ -91,6 +95,7 @@ async function api(path, body, { raw = false } = {}) {
   const k = getKeys();
   if (k.ai) h["x-ai-key"] = k.ai;
   if (k.openalex) h["x-openalex-key"] = k.openalex;
+  if (getModel()) h["x-ai-model"] = getModel();
   const resp = await fetch(path, { method: body ? "POST" : "GET", headers: h, body: body ? JSON.stringify(body) : undefined });
   if (resp.status === 401) { showAccess(true); throw new Error("Kode akses diperlukan."); }
   if (raw && resp.ok) return resp;
@@ -214,18 +219,27 @@ function keyCard() {
       <details ${optional || k.ai ? "" : "open"}><summary>Cara membuat key OpenRouter</summary>
         <ol style="margin:6px 0 0;padding-left:20px;font-size:14px">
           <li>Masuk ke <a href="https://openrouter.ai" target="_blank" rel="noopener">openrouter.ai</a>, buka menu <b>Keys</b>, klik <b>Create Key</b>.</li>
-          <li>Isi kredit kecil di menu <b>Credits</b> (model bawaan berbayar, sekitar US$0,02–0,05 per alur).</li>
+          <li>Isi kredit di menu <b>Credits</b> (minimal US$5). Dengan model bawaan, satu alur penuh kurang dari US$0,01.</li>
           <li>Salin key yang diawali <code>sk-or-</code> dan tempel di bawah.</li>
         </ol></details>
       <div class="grid2">
         <label class="field"><span>API key OpenRouter atau Gemini</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-ai" value="${esc(k.ai)}" placeholder="sk-or-… atau AIza…"></label>
         <label class="field"><span>API key OpenAlex (opsional)</span><input type="password" autocomplete="off" spellcheck="false" data-act="key-openalex" value="${esc(k.openalex)}" placeholder="Kosongkan bila tidak punya"></label>
       </div>
+      ${modelPicker()}
       <div class="row" style="align-items:center">
         <button type="button" class="btn ghost small" data-act="clear-keys" ${k.ai || k.openalex ? "" : "disabled"}>Hapus key dari perangkat ini</button>
         <span class="hint">Key hanya disimpan di browser ini dan diteruskan ke penyedia AI saat dipakai; server tidak menyimpannya.</span>
       </div>
     </section>`;
+}
+
+function modelPicker() {
+  const models = config?.openrouterModels || [];
+  if (!models.length || !usesOpenRouter()) return "";
+  const cur = getModel() || models[0].id;
+  return `<label class="field" style="max-width:640px"><span>Model AI (OpenRouter) · harga per 1 juta token input / output</span>
+    <select data-act="model">${models.map((m) => `<option value="${esc(m.id)}" ${m.id === cur ? "selected" : ""}>${esc(m.label)} (${esc(m.price)})</option>`).join("")}</select></label>`;
 }
 
 function viewMe() {
@@ -554,7 +568,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["toggle-work", "choose-gap", "check", "lang", "aspect", "edit-abstract", "edit-section", "ack", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["model", "toggle-work", "choose-gap", "check", "lang", "aspect", "edit-abstract", "edit-section", "ack", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -564,6 +578,7 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); return; }
+  if (act === "model") { setModel(el.value); state.meta.model = ""; save(); toast("Model AI diganti."); return; }
   if (act === "toggle-work") {
     const id = el.dataset.id;
     if (state.lit.selected.find((w) => w.id === id)) state.lit.selected = state.lit.selected.filter((w) => w.id !== id);
@@ -601,6 +616,8 @@ document.addEventListener("input", (e) => {
     k[act === "key-ai" ? "ai" : "openalex"] = el.value.trim();
     setKeys(k); updateChip(); refreshChrome();
     const tag = $("#keyState"); if (tag) tag.innerHTML = keyStateTag();
+    const hadPicker = Boolean(document.querySelector('[data-act="model"]'));
+    if (hadPicker !== Boolean(modelPicker())) { const kc = $("#keyCard"); if (kc) { kc.outerHTML = keyCard(); const inp = document.querySelector(`[data-act="${act}"]`); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } } }
     const clr = document.querySelector('[data-act="clear-keys"]'); if (clr) clr.disabled = !(k.ai || k.openalex);
   }
 });

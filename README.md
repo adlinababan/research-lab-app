@@ -17,10 +17,20 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 **Disarankan: satu key OpenRouter milik narasumber di server.**
 
 1. Masuk ke https://openrouter.ai → menu **Keys** → **Create Key**. Salin key yang diawali `sk-or-`.
-2. Menu **Credits** → isi kredit (misalnya US$5–10). Model bawaan `google/gemini-3.6-flash` berbiaya sekitar US$0,75 per juta token input dan US$3,75 per juta token output, kira-kira **US$0,02–0,05 per peserta** untuk satu alur penuh. Untuk 20 peserta, totalnya sekitar US$1.
+2. Menu **Credits** → isi kredit minimal US$5. **Tanpa saldo, semua model berbayar ditolak** dengan pesan "kredit tidak cukup", dan model gratis pun bisa ikut ditolak bila saldo 0 atau minus.
+   Model bawaan `anthropic/claude-haiku-5.5` (US$0,10 / US$0,50 per juta token input/output) menghabiskan kurang dari **US$0,01 per peserta** untuk satu alur penuh. Peserta bisa memilih model lain di langkah 1:
+
+   | Model | Harga per 1 juta token (input / output) | Catatan |
+   |---|---|---|
+   | `anthropic/claude-haiku-5.5` | $0,10 / $0,50 | Bawaan; paling patuh aturan sitasi dan placeholder |
+   | `deepseek/deepseek-v4-flash` | $0,09 / $0,18 | Paling hemat |
+   | `openai/gpt-6-luna` | $0,10 / $0,50 | Murah, serbaguna |
+   | `google/gemini-2.5-flash-lite` | $0,10 / $0,40 | Murah, cepat |
+   | `google/gemini-3.6-flash` | $0,75 / $3,75 | Lebih mahal |
+
 3. Di Vercel → **Settings → Environment Variables**, tambahkan `OPENROUTER_API_KEY` dengan environment **Production** dicentang, lalu **Redeploy**.
 
-Model gratis OpenRouter (`:free`) dibatasi 20 permintaan per menit dan 50 per hari untuk akun yang belum pernah membeli kredit (1.000 per hari setelah total pembelian US$10). Itu tidak cukup untuk 20 peserta, jadi model berbayar yang murah lebih aman. Model lain bisa dipilih lewat `OPENROUTER_MODEL`.
+Model gratis OpenRouter (`:free`) dibatasi 20 permintaan per menit dan 50 per hari untuk akun yang belum pernah membeli kredit (1.000 per hari setelah total pembelian US$10). Itu tidak cukup untuk 20 peserta, jadi model berbayar yang murah lebih aman. Model bawaan server bisa diganti lewat `OPENROUTER_MODEL`. Aplikasi selalu membatasi panjang jawaban (`max_tokens`) agar saldo kecil tetap cukup.
 
 **Alternatif: setiap peserta menempelkan key sendiri** di langkah 1 aplikasi. Kolom key menerima key OpenRouter (`sk-or-…`) maupun Gemini (`AIza…`) dan mengenalinya otomatis. Key hanya disimpan di browser peserta, diteruskan per permintaan, dan tidak disimpan di server. Bila peserta mengisi key sendiri, key peserta yang dipakai.
 
