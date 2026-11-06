@@ -22,6 +22,18 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 
 ---
 
+## 0. Login (username dan password)
+
+Bila env **`APP_USERS`** diisi, aplikasi menampilkan layar **Masuk** dan semua API (`/api/search`, `/api/llm`, `/api/docx`, `/api/check`) menolak permintaan tanpa login. Bila kosong, aplikasi terbuka seperti sebelumnya (atau memakai `ACCESS_CODE` lama).
+
+1. Vercel › Project › **Settings › Environment Variables** › tambah `APP_USERS` (Production), isinya daftar akun dipisah koma atau baris baru:
+   - `dosen01:PasswordRahasia` (password apa adanya), atau
+   - `dosen01:sha256:<hex>` (lebih aman; buat dengan `node scripts/hash-password.mjs dosen01 "PasswordRahasia"`).
+2. Opsional: `AUTH_SECRET` (teks acak panjang) untuk menandatangani token; `AUTH_TTL_DAYS` (default 7) untuk lama sesi.
+3. **Redeploy** (Deployments › titik tiga › Redeploy) agar env baru berlaku.
+
+Perilaku: username tidak peka huruf besar; token login berlaku 7 hari dan otomatis batal bila akun dihapus atau password diganti; 12 percobaan gagal per IP dalam 15 menit diblokir sementara. **Draf, API key, dan gambar hasil disimpan terpisah per akun** di browser, jadi aman di komputer lab bersama; klik **Keluar** setelah selesai. Draf dari sebelum fitur login ditawarkan untuk dipindahkan ke akun pertama yang masuk. Jangan pernah menaruh daftar akun di repositori.
+
 ## A. API key
 
 **Cara utama: setiap peserta memakai dua key miliknya sendiri.** Di langkah 1 aplikasi ada dua kolom beserta panduan daftarnya:

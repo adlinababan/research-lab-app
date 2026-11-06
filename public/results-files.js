@@ -429,22 +429,22 @@ export async function readUploads(files) {
 
 // ---------- penyimpanan gambar (IndexedDB; localStorage terlalu kecil) ----------
 const DB = "research-lab-figs", ST = "figs";
-function idb() {
+function idb(ns = "") {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
+    const r = indexedDB.open(ns ? `${DB}:${ns}` : DB, 1);
     r.onupgradeneeded = () => r.result.createObjectStore(ST);
     r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   });
 }
-export async function saveFigs(map) {
+export async function saveFigs(map, ns = "") {
   try {
-    const db = await idb();
+    const db = await idb(ns);
     await new Promise((res, rej) => { const tx = db.transaction(ST, "readwrite"); const s = tx.objectStore(ST); s.clear(); for (const [k, v] of Object.entries(map)) s.put(v, k); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
   } catch {}
 }
-export async function loadFigs() {
+export async function loadFigs(ns = "") {
   try {
-    const db = await idb();
+    const db = await idb(ns);
     return await new Promise((res) => {
       const out = {}; const tx = db.transaction(ST, "readonly"); const req = tx.objectStore(ST).openCursor();
       req.onsuccess = () => { const c = req.result; if (c) { out[c.key] = c.value; c.continue(); } else res(out); };

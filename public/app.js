@@ -23,6 +23,17 @@ const MIN_PAPERS = 15; // paper conference IEEE umumnya 15–30 referensi
 const STORE_KEY = "research-lab-state-v3";
 const CODE_KEY = "research-lab-access";
 const KEYS_KEY = "research-lab-keys-v2"; // API key pengguna: hanya di browser ini, tidak ikut ekspor .json
+const AUTH_KEY = "research-lab-auth"; // token login {token, user, exp}
+// Login: draf, API key, dan gambar disimpan terpisah per akun (aman di komputer lab bersama).
+function getAuth() {
+  try { const a = JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); if (a?.token && a.exp > Date.now()) return a; } catch {}
+  return null;
+}
+function setAuth(a) { try { localStorage.setItem(AUTH_KEY, JSON.stringify(a)); } catch {} }
+function clearAuth() { try { localStorage.removeItem(AUTH_KEY); } catch {} }
+const scoped = (k) => { const a = getAuth(); return a ? `${k}:${a.user}` : k; };
+const figNs = () => getAuth()?.user || "";
+let loggedOutGate = false; // true saat login wajib tetapi belum masuk: jangan menyimpan apa pun
 
 // Peran CRediT (taksonomi kontribusi penulis) dan padanan bahasa Indonesianya.
 const CREDIT = {
@@ -68,7 +79,7 @@ let state = load();
 // ---------- penyimpanan lokal ----------
 function load() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(scoped(STORE_KEY));
     if (raw) {
       const s = deepMerge(defaultState(), JSON.parse(raw));
       s.me.authors = (s.me.authors.length ? s.me.authors : [blankAuthor()]).slice(0, MAX_AUTHORS).map((a) => ({ ...blankAuthor(), ...a }));
@@ -102,7 +113,7 @@ function deepMerge(base, extra) {
   return base;
 }
 let saveTimer = null;
-function flushSave() { clearTimeout(saveTimer); try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
+function flushSave() { clearTimeout(saveTimer); if (loggedOutGate) return; try { localStorage.setItem(scoped(STORE_KEY), JSON.stringify(state)); } catch {} }
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 250); }
 window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
@@ -119,14 +130,15 @@ function clientId() {
 function accessCode() { try { return localStorage.getItem(CODE_KEY) || ""; } catch { return ""; } }
 let memKeys = { ai: "", openalex: "" };
 function getKeys() {
-  try { const k = JSON.parse(localStorage.getItem(KEYS_KEY) || "null"); if (k) return { ai: k.ai || "", openalex: k.openalex || "" }; } catch {}
+  try { const k = JSON.parse(localStorage.getItem(scoped(KEYS_KEY)) || "null"); if (k) return { ai: k.ai || "", openalex: k.openalex || "" }; } catch {}
   return memKeys;
 }
 function setKeys(k) {
   memKeys = { ai: (k.ai || "").trim(), openalex: (k.openalex || "").trim() };
-  try { localStorage.setItem(KEYS_KEY, JSON.stringify(memKeys)); } catch {}
+  if (loggedOutGate) return;
+  try { localStorage.setItem(scoped(KEYS_KEY), JSON.stringify(memKeys)); } catch {}
 }
-function clearKeys() { memKeys = { ai: "", openalex: "" }; try { localStorage.removeItem(KEYS_KEY); } catch {} }
+function clearKeys() { memKeys = { ai: "", openalex: "" }; try { localStorage.removeItem(scoped(KEYS_KEY)); } catch {} }
 function keyKind(k) { return k.startsWith("sk-or-") ? "OpenRouter" : k.startsWith("AIza") ? "Gemini" : k ? "tidak dikenal" : ""; }
 function serverHasKey() { return Boolean(config && (config.mock || config.llm?.configured)); }
 function hasAiKey() { return !config || serverHasKey() || ["OpenRouter", "Gemini"].includes(keyKind(getKeys().ai)); }
@@ -196,12 +208,17 @@ function prodiChips(present, label) {
 
 async function api(path, body, { raw = false } = {}) {
   const h = { "Content-Type": "application/json", "x-access-code": accessCode(), "x-client-id": clientId() };
+  const au = getAuth(); if (au) h["x-auth-token"] = au.token;
   const k = getKeys();
   if (k.ai) h["x-ai-key"] = k.ai;
   if (k.openalex) h["x-openalex-key"] = k.openalex;
   if (path === "/api/llm" && body) body = { ...body, model: chosenModel() };
   const resp = await fetch(path, { method: body ? "POST" : "GET", headers: h, body: body ? JSON.stringify(body) : undefined });
-  if (resp.status === 401) { showAccess(true); throw new Error("Kode akses diperlukan."); }
+  if (resp.status === 401) {
+    let d = null; try { d = await resp.clone().json(); } catch {}
+    if (d?.code === "login") { logout(true); throw new Error("Silakan masuk dengan username dan password."); }
+    showAccess(true); throw new Error("Kode akses diperlukan.");
+  }
   if (raw && resp.ok) return resp;
   let data = null;
   try { data = await resp.json(); } catch {}
@@ -1668,7 +1685,7 @@ document.addEventListener("change", (e) => {
     const files = [...(el.files || [])]; if (!files.length) return;
     runTask("results-files", async () => {
       const out = await readUploads(files);
-      figData = out.figData; delete out.figData; await saveFigs(figData);
+      figData = out.figData; delete out.figData; await saveFigs(figData, figNs());
       out.files = files.map((f) => f.name);
       if (!out.figures.length && !out.tables.length && !out.texts.length && !out.project) throw new Error("Tidak ada tabel, gambar, atau output teks yang terbaca. Periksa format file (lihat daftar file yang dilewati).");
       state.results = { ...state.results, items: out, sug: null, applied: state.results.applied };
@@ -1835,11 +1852,81 @@ function updateChip() {
   else { chip.textContent = !ai && !hasOpenAlexKey() ? "Isi 2 API key" : !ai ? "Isi Research Lab key" : "Isi API key OpenAlex"; chip.className = "chip err"; }
 }
 
+// ---------- login ----------
+function showUser() {
+  const a = getAuth(); const box = $("#userBox");
+  if (!box) return;
+  box.hidden = !a; if (a) $("#userName").textContent = a.user;
+}
+function showLogin(show) {
+  const m = $("#loginModal"); m.hidden = !show;
+  document.body.classList.toggle("locked", show);
+  if (show) setTimeout(() => $("#loginUser").focus(), 50);
+}
+// silent = dipanggil karena sesi berakhir (tanpa konfirmasi).
+function logout(silent = false) {
+  if (!silent && !window.confirm("Keluar dari akun ini? Draf Anda tetap tersimpan di browser ini untuk akun Anda.")) return;
+  flushSave();
+  clearAuth(); loggedOutGate = true;
+  state = defaultState(); memKeys = { ai: "", openalex: "" }; keyCheck = { ai: null, openalex: null }; figData = {};
+  Object.keys(errors).forEach((k) => delete errors[k]); Object.keys(busy).forEach((k) => delete busy[k]);
+  showUser(); render(); showLogin(true);
+}
+// Draf dari sebelum fitur login (tanpa akun) boleh dipindahkan ke akun yang pertama masuk, atas persetujuan.
+function adoptLegacy(user) {
+  try {
+    const legacy = localStorage.getItem(STORE_KEY);
+    if (!legacy || localStorage.getItem(`${STORE_KEY}:${user}`)) return;
+    if (!window.confirm(`Di browser ini ada draf dari sebelum fitur login. Pakai draf itu untuk akun "${user}"?\n\nPilih Batal bila draf itu milik orang lain.`)) return;
+    localStorage.setItem(`${STORE_KEY}:${user}`, legacy); localStorage.removeItem(STORE_KEY);
+    const k = localStorage.getItem(KEYS_KEY); if (k) { localStorage.setItem(`${KEYS_KEY}:${user}`, k); localStorage.removeItem(KEYS_KEY); }
+  } catch {}
+}
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btnEl = $("#loginBtn"); const err = $("#loginError");
+  err.hidden = true; btnEl.disabled = true; btnEl.textContent = "Memeriksa…";
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: $("#loginUser").value, password: $("#loginPass").value }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.token) throw new Error(d.error || "Gagal masuk. Coba lagi.");
+    setAuth({ token: d.token, user: d.user, exp: d.exp });
+    adoptLegacy(d.user);
+    loggedOutGate = false;
+    state = load(); memKeys = { ai: "", openalex: "" };
+    $("#loginPass").value = "";
+    figData = await loadFigs(figNs());
+    if (!stepUnlocked(state.step)) state.step = firstOpenStep();
+    showLogin(false); showUser(); updateChip(); render();
+    toast(`Selamat datang, ${d.user}.`, { ok: true });
+  } catch (x) {
+    err.textContent = x.message; err.hidden = false;
+  } finally { btnEl.disabled = false; btnEl.textContent = "Masuk"; }
+});
+$("#togglePass").addEventListener("click", () => {
+  const i = $("#loginPass"); const show = i.type === "password";
+  i.type = show ? "text" : "password"; $("#togglePass").textContent = show ? "Sembunyikan" : "Tampilkan";
+  $("#togglePass").setAttribute("aria-pressed", String(show));
+});
+$("#logoutBtn").addEventListener("click", () => logout(false));
+
 async function init() {
+  // Bila sebelumnya server mewajibkan login dan belum masuk, langsung tampilkan layar masuk
+  // (agar draf lama tidak sempat terlihat sebelum konfigurasi server terbaca).
+  try { if (localStorage.getItem("research-lab-login") === "1" && !getAuth()) { loggedOutGate = true; state = defaultState(); showLogin(true); } } catch {}
   render();
-  loadFigs().then((m) => { figData = m; if (state.results.items?.figures?.length) render(); });
   try {
     config = await api("/api/config");
+    try { localStorage.setItem("research-lab-login", config.loginRequired ? "1" : "0"); } catch {}
+    if (!config.loginRequired && loggedOutGate) { loggedOutGate = false; state = load(); showLogin(false); }
+    if (config.loginRequired) {
+      const a = getAuth();
+      let ok = false;
+      if (a) { try { const r = await fetch("/api/login", { headers: { "x-auth-token": a.token } }); ok = r.ok; } catch { ok = true; } }
+      if (!ok) { logout(true); return; }
+      showUser();
+    }
+    loadFigs(figNs()).then((m) => { figData = m; if (state.results.items?.figures?.length) render(); });
     if (config.eventName) $("#eventName").textContent = config.eventName;
     updateChip();
     // Langkah tersimpan yang belum boleh dibuka (mis. key dihapus) dikembalikan ke langkah yang belum selesai.

@@ -344,3 +344,14 @@ mark.numflag { background: var(--err-tint); color: var(--err); outline: 2px soli
 .rs-checks .ci { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: var(--ai); }
 .rs-checks li.ok .ci { background: var(--ok); }
 .rs-checks li.warn .ci { background: var(--warn); }
+
+/* ---------- Login ---------- */
+.modal.login { background: var(--bg); z-index: 60; }
+.login-card { width: min(440px, 100%); box-shadow: 0 10px 40px rgba(0,0,0,.12); border: 1px solid var(--line); }
+.login-brand { display: flex; gap: 12px; align-items: center; }
+.pass-row { display: flex; gap: 8px; align-items: center; }
+.pass-row input { flex: 1; min-width: 0; }
+body.locked { overflow: hidden; }
+.user-box { display: inline-flex; gap: 6px; align-items: center; }
+.user-chip b { font-weight: 600; }
+.login-card .error { color: var(--err); background: var(--err-tint); padding: 8px 10px; border-radius: 8px; }
