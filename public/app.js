@@ -140,9 +140,16 @@ const words = (s) => (String(s || "").trim().match(/\S+/g) || []).length;
 const PH_RE = /\[(?!\d+\])[^[\]]+\]/g;
 const CITE_RE = /\[(\d+)\]/g;
 const isId = () => state.me.lang === "id";
-function toast(msg) {
+// Penghitung yang ikut terlihat saat menggulir hasil pencarian.
+function selPill(k) {
+  const done = k >= MIN_PAPERS;
+  const msg = done ? `✓ Sudah memilih ${k} referensi` : `Terpilih ${k} / minimal ${MIN_PAPERS}, kurang ${MIN_PAPERS - k}`;
+  return `<div class="sel-pill${done ? " done" : ""}" role="status" aria-live="polite">${msg}<span class="hint"> · maks. ${MAX_PAPERS}</span></div>`;
+}
+function toast(msg, opt = {}) {
   const t = $("#toast"); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 3200);
+  t.classList.toggle("ok", !!opt.ok);
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), opt.ms || 3200);
 }
 function setPath(obj, path, val) {
   const ks = path.split("."); const last = ks.pop();
@@ -583,10 +590,10 @@ function viewLiterature() {
         <span class="hint">Wajib minimal ${MIN_PAPERS} referensi${needLitProdi() > 1 ? ` dari minimal ${needLitProdi()} rumpun tim` : ""} (paper IEEE umumnya 15–30); pilih yang benar-benar relevan dengan judul.</span>
       </div>
       ${teamChips(litProdi())}
-      ${L.selected.length < MIN_PAPERS ? `<div class="alert warn">Baru ${L.selected.length} referensi; tambah ${MIN_PAPERS - L.selected.length} lagi untuk lanjut. Coba kata kunci irisan, lensa per rumpun, dan Cek kebaruan.</div>` : ""}
+      ${L.selected.length < MIN_PAPERS ? `<div class="alert warn">Baru ${L.selected.length} referensi; tambah ${MIN_PAPERS - L.selected.length} lagi untuk lanjut. Coba kata kunci irisan, lensa per rumpun, dan Cek kebaruan.</div>` : `<div class="alert ok">✓ Sudah memilih ${L.selected.length} referensi (minimal ${MIN_PAPERS} terpenuhi).</div>`}
       ${L.selected.length ? `<ul class="selected-list">${sel}</ul>` : '<p class="hint">Belum ada. Centang makalah dari hasil pencarian.</p>'}
     </section>
-    ${L.searched ? `<section class="card"><h3>Hasil pencarian${L.lastLens ? ` · lensa ${esc(L.lastLens)}` : ""} <span class="hint">(${L.results.length} ditampilkan dari ±${Number(L.total).toLocaleString("id-ID")})</span></h3><div class="results">${list || '<p class="hint">Tidak ada hasil. Coba kata kunci lain.</p>'}</div></section>` : ""}
+    ${L.searched ? `<section class="card"><h3>Hasil pencarian${L.lastLens ? ` · lensa ${esc(L.lastLens)}` : ""} <span class="hint">(${L.results.length} ditampilkan dari ±${Number(L.total).toLocaleString("id-ID")})</span></h3>${selPill(L.selected.length)}<div class="results">${list || '<p class="hint">Tidak ada hasil. Coba kata kunci lain.</p>'}</div></section>` : ""}
     ${navRow("Lanjut ke matriks gap")}`;
 }
 
@@ -1385,6 +1392,13 @@ document.addEventListener("change", (e) => {
       const w = state.lit.results.find((x) => x.id === id);
       const n = state.lit.selected.reduce((mx, x) => Math.max(mx, x.n), 0) + 1;
       state.lit.selected.push({ ...w, n, prodi: state.lit.lastLens || "" });
+      const k = state.lit.selected.length;
+      if (k === MIN_PAPERS) {
+        const prodiOk = litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
+        toast(prodiOk
+          ? `✓ Sudah memilih ${MIN_PAPERS} referensi. Anda bisa lanjut ke Langkah 3, atau menambah hingga ${MAX_PAPERS}.`
+          : `✓ Sudah memilih ${MIN_PAPERS} referensi. Tandai rumpun: minimal ${needLitProdi()} rumpun tim harus terwakili.`, { ok: true, ms: 6000 });
+      } else if (k === MAX_PAPERS) toast(`Sudah ${MAX_PAPERS} referensi, batas maksimal tercapai.`, { ok: true, ms: 5000 });
     }
     save(); render(); return;
   }
