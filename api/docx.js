@@ -39,6 +39,17 @@ export default async function handler(req, res) {
       contributionship: clip(b.contributionship, 3000),
       openData: clip(b.openData, 1500),
       references: finalOrder.map((old) => ieeeReferenceParts(byN.get(old))),
+      tables: (b.tables || []).slice(0, 10).map((t) => {
+        const headers = (t.headers || []).slice(0, 8).map((h) => clip(h, 60));
+        return { label: clip(t.label, 20), caption: clip(t.caption, 220), placement: t.placement === "method" ? "method" : "results", headers, rows: (t.rows || []).slice(0, 40).map((r) => (r || []).slice(0, headers.length).map((c) => clip(c, 60))) };
+      }).filter((t) => t.headers.length),
+      figures: (b.figures || []).slice(0, 10).map((f) => {
+        const data = String(f.data || "").replace(/^data:[^,]+,/, "");
+        const head = Buffer.from(data.slice(0, 16), "base64");
+        const mime = head[0] === 0xff && head[1] === 0xd8 ? "image/jpeg" : head[0] === 0x89 && head[1] === 0x50 ? "image/png" : "";
+        return { label: clip(f.label, 20), caption: clip(f.caption, 300), placement: f.placement === "method" ? "method" : "results", name: clip(f.name, 80), w: Number(f.w) || 4, h: Number(f.h) || 3, mime, data };
+      }).filter((f) => f.mime && f.data.length < 2_000_000),
+      methodFigPlaceholder: !!b.methodFigPlaceholder,
     };
     const buf = buildDocx(paper);
     const safe = "DRAF-LATIHAN-" + ((paper.title || "draf-paper").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 60) || "draf-paper");

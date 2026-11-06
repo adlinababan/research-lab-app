@@ -1,6 +1,7 @@
 // Research Lab — pelatihan riset berbantuan AI.
 // Prinsip: judul milik peserta, tim penulis multidisiplin (1–6 penulis, 5 rumpun prodi), AI hanya membantu.
 // Referensi hanya dari OpenAlex; angka hasil tidak dikarang; kontribusi dan data dinyatakan terbuka.
+import { readUploads, saveFigs, loadFigs } from "./results-files.js";
 
 const PRODI = ["Computer Science", "Information Systems", "Digital Business", "Visual Communication Design", "International Trade"];
 // Nama lama (bahasa Indonesia) dari sesi tersimpan dipetakan ke nama bahasa Inggris.
@@ -55,6 +56,7 @@ const defaultState = () => ({
   },
   meta: { model: "", label: "" },
   review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
+  results: { items: null, sug: null, applied: null, dec: "" }, // hasil analisis milik dosen (ZIP)
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -1033,7 +1035,172 @@ function viewDraft() {
       <div id="draftStats">${draftStats()}</div>
       ${editor}
     </section>
+    ${resultsCard()}
     ${navRow("Lanjut ke integritas dan ekspor")}`;
+}
+
+// ---------- Hasil analisis milik dosen (ZIP) ----------
+// Research Lab tidak mengolah data: dosen mengolah sendiri (Python, SPSS, Excel), lalu mengunggah hasilnya.
+// AI menyarankan tabel/gambar dan menulis Hasil-Pembahasan, Kesimpulan, Abstrak; angka dikunci ke file dosen.
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII"];
+const RS_TOKEN = /\{\{(table|figure):([A-Za-z0-9_-]+)\}\}/g;
+let figData = {}; // id -> dataURL (disimpan di IndexedDB, bukan localStorage)
+function rsSugOf(id) {
+  const s = state.results.sug; if (!s) return null;
+  return s.tables.find((x) => x.id === id) || s.newTables.find((x) => x.id === id) || s.figures.find((x) => x.id === id) || null;
+}
+function rsAll() {
+  const R = state.results; const s = R.sug; const I = R.items;
+  if (!s || !I) return { tables: [], figures: [] };
+  const tables = [
+    ...I.tables.map((t) => ({ ...t, ...(s.tables.find((x) => x.id === t.id) || { use: false }) })),
+    ...s.newTables.map((t) => ({ ...t, name: `${isId() ? "disusun dari" : "built from"} ${I.texts.find((x) => x.id === t.source)?.name || t.source}`, extracted: true })),
+  ];
+  const figures = I.figures.map((f) => ({ ...f, ...(s.figures.find((x) => x.id === f.id) || { use: false }) }));
+  return { tables, figures };
+}
+function methodRefsFig1() {
+  const m = state.draft.data?.sections?.[2];
+  return !!m && /(Fig\.|Gambar|Figure)\s*1\b/.test(m.paragraphs.join(" "));
+}
+// Nomor tabel/gambar: Tabel I = matriks gap; urut bagian (metode dulu) lalu urutan disebut di teks.
+function rsLabels() {
+  const { tables, figures } = rsAll();
+  const text = (state.results.sug?.results || []).map((p) => p.text).join(" ");
+  const pos = (k, id) => { const i = text.indexOf(`{{${k}:${id}}}`); return i < 0 ? 1e9 : i; };
+  const order = (list, k) => list.filter((x) => x.use).sort((a, b) => (a.placement === b.placement ? pos(k, a.id) - pos(k, b.id) : a.placement === "method" ? -1 : 1));
+  const labels = {};
+  let tn = state.gap.matrix?.rows?.length ? 1 : 0;
+  const T = order(tables, "table"), F = order(figures, "figure");
+  for (const t of T) labels[t.id] = `${isId() ? "Tabel" : "Table"} ${ROMAN[tn++] || tn}`;
+  const hasMethodFig = F.some((f) => f.placement === "method");
+  const placeholderFig1 = !hasMethodFig && methodRefsFig1();
+  let fn = placeholderFig1 ? 2 : 1;
+  for (const f of F) labels[f.id] = `${isId() ? "Gambar" : "Fig."} ${fn++}`;
+  return { labels, T, F, hasMethodFig, placeholderFig1 };
+}
+function fillTokens(text, labels) {
+  const { tables, figures } = rsAll();
+  const all = new Map([...tables, ...figures].map((x) => [x.id, x]));
+  return String(text)
+    .replace(RS_TOKEN, (m, k, id) => labels[id] || `[${k === "table" ? (isId() ? "Tabel" : "Table") : isId() ? "Gambar" : "Fig."}: ${all.get(id)?.caption || id}]`)
+    .replace(/\b(?:Tabel|Table)\s+(?=(?:Tabel|Table)\s+[IVX]+\b)/g, "")
+    .replace(/(?:\bGambar|\bFigure|\bFig\.)\s+(?=(?:Gambar|Fig\.)\s+\d)/g, "");
+}
+const rsSig = () => JSON.stringify(rsLabels().labels) + JSON.stringify(rsAll().tables.concat(rsAll().figures).filter((x) => x.use).map((x) => [x.id, x.caption, x.placement]));
+function fmtCell(c) {
+  const d = state.results.dec;
+  return d && /^-?\d+\.\d+$/.test(String(c).trim()) && String(c).split(".")[1].length > Number(d) ? Number(c).toFixed(Number(d)) : c;
+}
+function miniTable(t, max = 6) {
+  const cols = Math.min(t.headers.length, 7);
+  return `<div class="mini-wrap"><table class="mini-table"><tr>${t.headers.slice(0, cols).map((h) => `<th>${esc(h)}</th>`).join("")}</tr>${t.rows.slice(0, max).map((r) => `<tr>${r.slice(0, cols).map((c) => `<td>${esc(fmtCell(c))}</td>`).join("")}</tr>`).join("")}</table>${t.rows.length > max || t.headers.length > cols ? `<div class="hint">… ${t.rows.length} baris × ${t.headers.length} kolom</div>` : ""}</div>`;
+}
+function flagHtml(text, flags, map) {
+  let h = renderRich(text, map);
+  for (const f of flags || []) h = h.split(esc(f)).join(`<mark class="numflag" title="Angka ini tidak ditemukan di file Anda">${esc(f)}</mark>`);
+  return h;
+}
+function rsParas(key, ps, flags, labels) {
+  const roles = ROLES[key]; const map = citationMap().map;
+  const ci = (r) => roles.find(([k]) => k === r)?.[3] ?? 0;
+  const lab = (r) => roles.find(([k]) => k === r)?.[1] || "Belum ditandai";
+  return ps.map((p, i) => `<div class="sm-para ${p.role ? `rc${ci(p.role)}` : "sm-none"}"><span class="sm-tag">${esc(lab(p.role))}</span>${flagHtml(fillTokens(p.text, labels), flags?.[i], map)}</div>`).join("");
+}
+function rsItemHtml(x, kind, labels) {
+  const lab = labels[x.id];
+  const thumb = kind === "figure"
+    ? (figData[x.id] ? `<img src="${figData[x.id]}" alt="${esc(x.name)}" loading="lazy">` : '<div class="alert warn">Gambar tidak tersimpan di browser ini. Unggah ulang ZIP.</div>')
+    : miniTable(x);
+  return `<li class="rs-item ${x.use ? "" : "rs-off"}">
+    <div class="rs-thumb">${thumb}</div>
+    <div class="rs-ctl">
+      <label class="rs-use"><input type="checkbox" data-act="rs-use" data-id="${x.id}" ${x.use ? "checked" : ""}> <b>${x.use && lab ? esc(lab) : "Tidak dipakai"}</b></label>
+      <div class="hint rs-name">${esc(x.name)}</div>
+      ${x.why ? `<div class="hint">AI: ${esc(x.why)}</div>` : ""}
+      ${x.flags?.length ? `<div class="alert err">Angka ${x.flags.map(esc).join(", ")} tidak ditemukan di output aslinya. Periksa sebelum dipakai.</div>` : ""}
+      <label class="field"><span>Caption</span><input data-act="rs-cap" data-id="${x.id}" value="${esc(x.caption || "")}"></label>
+      <label class="field"><span>Letak</span><select data-act="rs-place" data-id="${x.id}"><option value="results" ${x.placement !== "method" ? "selected" : ""}>Hasil dan Pembahasan</option><option value="method" ${x.placement === "method" ? "selected" : ""}>Metode</option></select></label>
+    </div></li>`;
+}
+function resultsCard() {
+  const d = state.draft.data; const R = state.results; const I = R.items;
+  if (!d) return `<section class="card human"><h2>Hasil analisis Anda (opsional)</h2><p class="hint" style="margin:0">Setelah draf tersusun, unggah hasil olahan data Anda sendiri (ZIP) agar AI menata tabel, gambar, serta mengisi Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka Anda.</p></section>`;
+  const n = I ? I.figures.length + I.tables.length + I.texts.length : 0;
+  const inv = I ? `
+    <div class="rs-inv"><span class="chip">${I.figures.length} gambar</span><span class="chip">${I.tables.length} tabel</span><span class="chip">${I.texts.length} output teks/kode</span>${I.raw.length ? `<span class="chip warn">${I.raw.length} data mentah (tidak dikirim)</span>` : ""}${I.ignored.length ? `<span class="chip">${I.ignored.length} dilewati</span>` : ""}</div>
+    ${I.files?.length ? `<p class="hint">File: ${I.files.map(esc).join(", ")}</p>` : ""}
+    ${I.raw.length ? `<details><summary class="hint">Data mentah yang hanya dicatat jumlah baris dan kolomnya</summary><ul class="hint">${I.raw.map((r) => `<li>${esc(r.name)}: ${r.rows} baris; ${esc(r.headers.slice(0, 8).join(", "))}${r.headers.length > 8 ? "…" : ""}</li>`).join("")}</ul></details>` : ""}
+    ${I.ignored.length ? `<details><summary class="hint">File yang dilewati</summary><ul class="hint">${I.ignored.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : "";
+  let sugHtml = "";
+  if (R.sug && I) {
+    const { labels } = rsLabels();
+    const { tables, figures } = rsAll();
+    const s = R.sug;
+    const nf = [...s.flags.results, ...s.flags.conclusion, ...s.flags.abstract].flat().length;
+    const stale = R.applied && R.applied.sig !== rsSig();
+    sugHtml = `
+      <h3>Saran AI</h3>
+      ${s.missing.length ? `<div class="alert warn"><b>Yang masih akan ditanyakan reviewer:</b><ul>${s.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
+      ${figures.length ? `<h4>Gambar (${figures.filter((f) => f.use).length} dipakai)</h4><ul class="rs-list">${figures.map((f) => rsItemHtml(f, "figure", labels)).join("")}</ul>` : ""}
+      ${tables.length ? `<h4>Tabel (${tables.filter((t) => t.use).length} dipakai)</h4>
+        <label class="field rs-dec"><span>Desimal di tabel</span><select data-act="rs-dec"><option value="">Sesuai file</option>${["2", "3", "4"].map((v) => `<option value="${v}" ${R.dec === v ? "selected" : ""}>${v} desimal</option>`).join("")}</select></label>
+        <ul class="rs-list">${tables.map((t) => rsItemHtml(t, "table", labels)).join("")}</ul>` : ""}
+      ${nf ? `<div class="alert err"><b>${nf} angka di teks usulan tidak ditemukan di file Anda</b> (ditandai merah). Bisa jadi hasil pembulatan yang berbeda, atau AI keliru. Periksa dan perbaiki sebelum dipakai.</div>` : '<div class="alert ok">✓ Semua angka di teks usulan ditemukan di file hasil Anda.</div>'}
+      <details class="rs-prev" open><summary><b>${esc(s.heading?.results || "Results and Discussion")}</b> (usulan)</summary>${rsParas("results", s.results, s.flags.results, labels)}</details>
+      <details class="rs-prev"><summary><b>${esc(s.heading?.conclusion || "Conclusion")}</b> (usulan)</summary>${rsParas("conclusion", s.conclusion, s.flags.conclusion, labels)}</details>
+      <details class="rs-prev"><summary><b>${isId() ? "Abstrak" : "Abstract"}</b> (usulan)</summary>${rsParas("abstract", s.abstract, s.flags.abstract, labels)}</details>
+      ${stale ? '<div class="alert warn">Pilihan atau caption berubah setelah diterapkan. Klik <b>Terapkan ulang</b> agar nomor tabel dan gambar di teks sesuai.</div>' : ""}
+      <div class="row-btns">${btn("results-apply", R.applied ? "Terapkan ulang ke draf" : "Terapkan ke draf", { kind: "primary" })}${R.applied ? btn("results-undo", "Kembalikan draf sebelumnya", { kind: "ghost" }) : ""}</div>
+      ${R.applied ? `<div class="alert ok">✓ Diterapkan: bagian Hasil dan Pembahasan, Kesimpulan, dan Abstrak di atas sudah diganti. Tabel dan gambar ikut tampil di pratinjau dan file .docx (Langkah 5).</div>` : '<p class="hint">Menerapkan akan mengganti bagian Hasil dan Pembahasan, Kesimpulan, dan Abstrak. Versi sebelumnya disimpan dan bisa dikembalikan.</p>'}`;
+  }
+  return `
+    <section class="card ai" id="resultsCard">
+      <h2>Hasil analisis Anda: unggah ZIP</h2>
+      <p class="hint" style="margin:0">Olah data Anda sendiri (Python, SPSS, Excel, dan lain-lain), lalu kemas hasilnya dalam satu ZIP: <b>tabel</b> (CSV, XLSX, JSON), <b>gambar</b> (PNG, JPG), <b>output teks</b> (TXT, LOG, mis. <code>classification_report</code>), kode (.py), atau <b>notebook .ipynb yang sudah dijalankan</b>. Research Lab tidak menghitung ulang data; AI hanya menata tabel dan gambar, lalu menulis Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka Anda.</p>
+      <div class="alert info">File dibaca di browser. Yang dikirim ke AI hanya tabel hasil (maks. 40 baris), cuplikan output teks, serta nama dan ukuran gambar; isi gambar tidak dikirim. Jangan sertakan data pribadi responden. File besar (lebih dari ${60} baris) dianggap data mentah dan hanya dicatat jumlah baris serta kolomnya.</div>
+      <div class="row-btns">
+        <label class="btn ghost file-btn ${busy["results-files"] ? "disabled" : ""}">${busy["results-files"] ? '<span class="spin" aria-hidden="true"></span>Membaca file…' : I ? "Ganti file hasil" : "Pilih ZIP atau file hasil"}<input type="file" data-act="results-files" multiple accept=".zip,.csv,.tsv,.xlsx,.xlsm,.json,.txt,.log,.md,.out,.ipynb,.py,.r,.png,.jpg,.jpeg,.webp" ${busy["results-files"] ? "disabled" : ""}></label>
+        ${btn("results-suggest", R.sug ? "Minta saran ulang" : "AI: sarankan tabel, gambar, dan isi hasil", { disabled: !n, busyLabel: "Membaca hasil Anda… (20–60 detik)" })}
+      </div>
+      ${errBox("results-files")}${errBox("results-suggest")}
+      ${inv}
+      ${promptViewer("results")}
+      ${sugHtml}
+    </section>`;
+}
+// Paket tabel/gambar untuk pratinjau, ekspor .docx, dan reviewer.
+function rsPlaced() {
+  const R = state.results;
+  if (!R.applied || !R.sug) return { tables: [], figures: [], placeholderFig1: false };
+  const { labels, T, F, placeholderFig1 } = rsLabels();
+  return {
+    tables: T.map((t) => ({ label: labels[t.id], caption: t.caption, placement: t.placement, headers: t.headers.slice(0, 8), rows: t.rows.slice(0, 40).map((r) => r.slice(0, 8).map(fmtCell)) })),
+    figures: F.map((f) => ({ label: labels[f.id], caption: f.caption, placement: f.placement, name: f.name, w: f.w, h: f.h, data: figData[f.id] || "" })),
+    placeholderFig1,
+  };
+}
+function rsMediaText() {
+  const P = rsPlaced();
+  return [...P.tables.map((t) => `${t.label}. ${t.caption}\n${[t.headers.join(" | "), ...t.rows.map((r) => r.join(" | "))].join("\n")}`),
+    ...P.figures.map((f) => `${f.label}. ${f.caption} (image supplied by the authors)`)].join("\n\n");
+}
+function rsBlocksFor(idx, paragraphs, map) {
+  const P = rsPlaced(); const want = idx === 2 ? "method" : idx === 3 ? "results" : "";
+  const out = new Map(); if (!want) return out;
+  const blocks = [
+    ...(want === "method" && P.placeholderFig1 ? [{ label: isId() ? "Gambar 1" : "Fig. 1", html: `<div class="fcap"><mark>[${isId() ? "Gambar 1: sisipkan alur penelitian" : "Fig. 1: insert research workflow"}]</mark></div>` }] : []),
+    ...P.tables.filter((t) => t.placement === want).map((t) => ({ label: t.label, html: `<div class="tcap">${esc(t.label)}. ${esc(t.caption)}</div><table><tr>${t.headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>${t.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table>` })),
+    ...P.figures.filter((f) => f.placement === want).map((f) => ({ label: f.label, html: `<figure class="pfig">${f.data ? `<img src="${f.data}" alt="">` : "<mark>[gambar perlu diunggah ulang]</mark>"}<figcaption>${esc(f.label)}. ${esc(f.caption)}</figcaption></figure>` })),
+  ];
+  for (const b of blocks) {
+    const re = new RegExp(`(^|[^\\w])${b.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`);
+    let at = paragraphs.findIndex((p) => re.test(p));
+    if (at < 0) at = paragraphs.length - 1;
+    if (!out.has(at)) out.set(at, []);
+    out.get(at).push(b.html);
+  }
+  return out;
 }
 
 // ---------- Langkah 5 ----------
@@ -1053,7 +1220,7 @@ function paperPreview() {
     <div class="cols">
       <p class="abs noindent"><i>${isId() ? "Abstrak" : "Abstract"}</i>—${renderRich(d.abstract, map)}</p>
       <p class="abs noindent"><i>${isId() ? "Kata kunci" : "Keywords"}</i>—${esc(state.draft.keywords)}</p>
-      ${d.sections.map((s, i) => `<h4>${["I", "II", "III", "IV", "V", "VI"][i]}. ${esc(s.heading)}</h4>${s.paragraphs.map((p) => `<p>${renderRich(p, map)}</p>`).join("")}${i === 1 ? matrix : ""}`).join("")}
+      ${d.sections.map((s, i) => { const bl = rsBlocksFor(i, s.paragraphs, map); return `<h4>${["I", "II", "III", "IV", "V", "VI"][i]}. ${esc(s.heading)}</h4>${s.paragraphs.map((p, k) => `<p>${renderRich(p, map)}</p>${(bl.get(k) || []).join("")}`).join("")}${i === 1 ? matrix : ""}`; }).join("")}
       <h4>${isId() ? "Ucapan Terima Kasih" : "Acknowledgment"}</h4><p>${renderRich(ack, null)}</p>
       <h4>Open Contributionship</h4><p>${renderRich(contribStatement(), null)}</p>
       <h4>Open Data</h4><p>${renderRich(openDataStatement(), null)}</p>
@@ -1248,6 +1415,7 @@ const actions = {
       authors: state.me.authors.map((a) => ({ name: a.name, dept: oneLine(a.dept), faculty: oneLine(a.faculty), org: a.org, city: a.city, email: a.email })),
       acknowledgment: state.exp.ackEdited ? state.exp.ack : disclosure(),
       contributionship: contribStatement(), openData: openDataStatement(),
+      media: rsMediaText(),
     });
     state.review.data = r.result; state.review.done = []; noteModel(r);
   }),
@@ -1258,6 +1426,40 @@ const actions = {
     state.draft.keywords = list.join(", "); save(); render();
   },
   "use-keywords": () => { state.draft.keywords = state.draft.keywordSugs.join(", "); save(); render(); },
+  "results-suggest": () => runTask("results-suggest", async () => {
+    const d = state.draft.data; const I = state.results.items; if (!d || !I) return;
+    const r = await api("/api/llm", {
+      task: "results", title: state.me.title, gap: state.gap.text, lang: state.me.lang, approach: effectiveApproach(),
+      abstract: d.abstract, sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs })), papers: paperPayload(false),
+      tables: I.tables.map((t) => ({ id: t.id, name: t.name, headers: t.headers, rows: t.rows.slice(0, 40) })),
+      texts: I.texts, figures: I.figures.map(({ id, name, w, h, context }) => ({ id, name, w, h, context })), raw: I.raw,
+    });
+    state.results.sug = r.result; noteModel(r);
+    if (r.compact) toast("Jawaban pertama terpotong, jadi AI diminta ulang dengan ruang lebih besar.");
+  }),
+  "results-apply": () => {
+    const R = state.results, s = R.sug, d = state.draft.data; if (!s || !d) return;
+    if (!R.applied && !window.confirm("Terapkan ke draf? Bagian Hasil dan Pembahasan, Kesimpulan, dan Abstrak akan diganti. Versi sebelumnya disimpan dan bisa dikembalikan.")) return;
+    const { labels, F, hasMethodFig } = rsLabels();
+    const backup = R.applied?.backup || structuredClone({ abstract: d.abstract, abstractParts: d.abstractParts, sections: d.sections });
+    const put = (i, ps) => { const x = d.sections[i]; if (!x) return; x.paragraphs = ps.map((p) => fillTokens(p.text, labels)); x.roles = ps.map((p) => p.role); x.orig = [...x.paragraphs]; };
+    if (s.results.length) put(3, s.results);
+    if (s.conclusion.length) put(4, s.conclusion);
+    if (s.abstract.length) { d.abstractParts = s.abstract.map((p) => ({ role: p.role, text: p.text })); d.abstract = s.abstract.map((p) => p.text).join(" "); }
+    // Placeholder "[Fig. 1: alur penelitian]" di Metode diganti label gambar metode yang diunggah.
+    if (hasMethodFig && d.sections[2]) {
+      const lab = labels[F.find((f) => f.placement === "method").id];
+      d.sections[2].paragraphs = d.sections[2].paragraphs.map((p) => p.replace(/\[(?:Fig\.|Gambar|Figure)\s*1\b[^\]]*\]/g, lab));
+    }
+    R.applied = { backup, at: Date.now(), sig: rsSig() };
+    save(); render();
+    toast("Diterapkan. Periksa angka bertanda merah dan sunting teksnya bila perlu.", { ok: true, ms: 5000 });
+  },
+  "results-undo": () => {
+    const R = state.results, d = state.draft.data; if (!R.applied || !d) return;
+    if (!window.confirm("Kembalikan draf sebelum hasil diterapkan? Suntingan setelah penerapan akan hilang.")) return;
+    Object.assign(d, structuredClone(R.applied.backup)); R.applied = null; save(); render(); toast("Draf dikembalikan ke versi sebelum hasil diterapkan.");
+  },
   "make-draft": () => {
     if (state.draft.data && !window.confirm("Susun ulang draf? Suntingan pada draf saat ini akan tertimpa.")) return;
     runTask("make-draft", async () => {
@@ -1267,6 +1469,7 @@ const actions = {
       r.result.sections.forEach((x) => { x.orig = [...x.paragraphs]; });
       if (r.compact) toast("Jawaban pertama terlalu panjang, jadi draf disusun ulang otomatis dalam versi ringkas.");
       state.draft.data = r.result;
+      state.results.applied = null; // draf baru: hasil unggahan perlu diterapkan ulang
       if (!state.draft.keywords.trim() && r.result.keywords?.length) state.draft.keywords = r.result.keywords.join(", ");
       noteModel(r);
     });
@@ -1291,6 +1494,12 @@ const actions = {
       sections: d.sections, matrix: state.gap.matrix, papers: state.lit.selected,
       acknowledgment: state.exp.ackEdited ? state.exp.ack : disclosure(),
       contributionship: contribStatement(), openData: openDataStatement(),
+      ...(() => {
+        // Batas permintaan server ±4,5 MB: gambar yang membuat paket terlalu besar dilewati (dengan pemberitahuan).
+        const P = rsPlaced(); let total = 0; const figs = [];
+        for (const f of P.figures.filter((x) => x.data)) { if (total + f.data.length > 3_400_000) { toast(`${f.label} tidak ikut ke .docx karena ukuran gambar terlalu besar; sisipkan manual di Word.`, { ms: 7000 }); continue; } total += f.data.length; figs.push(f); }
+        return { tables: P.tables, figures: figs, methodFigPlaceholder: P.placeholderFig1 };
+      })(),
     }, { raw: true });
     const blob = await resp.blob();
     const name = decodeURIComponent((resp.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "draf-paper.docx");
@@ -1330,7 +1539,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1340,6 +1549,21 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   const act = el.dataset?.act;
   if (act === "lang") { state.me.lang = el.value; save(); render(); return; }
+  if (act === "results-files") {
+    const files = [...(el.files || [])]; if (!files.length) return;
+    runTask("results-files", async () => {
+      const out = await readUploads(files);
+      figData = out.figData; delete out.figData; await saveFigs(figData);
+      out.files = files.map((f) => f.name);
+      if (!out.figures.length && !out.tables.length && !out.texts.length) throw new Error("Tidak ada tabel, gambar, atau output teks yang terbaca. Periksa format file (lihat daftar file yang dilewati).");
+      state.results = { ...state.results, items: out, sug: null, applied: state.results.applied };
+      toast(`Terbaca: ${out.figures.length} gambar, ${out.tables.length} tabel, ${out.texts.length} output teks.`, { ok: true });
+    });
+    return;
+  }
+  if (act === "rs-use") { const x = rsSugOf(el.dataset.id); if (x) x.use = el.checked; save(); render(); return; }
+  if (act === "rs-place") { const x = rsSugOf(el.dataset.id); if (x) x.placement = el.value; save(); render(); return; }
+  if (act === "rs-dec") { state.results.dec = el.value; save(); render(); return; }
   if (act === "consent") { state.me.consent = el.checked; save(); render(); return; }
   if (act === "review-done") { state.review.done[Number(el.dataset.i)] = el.checked; save(); render(); return; }
   if (act === "approach") {
@@ -1430,6 +1654,7 @@ document.addEventListener("input", (e) => {
     return;
   }
   const act = el.dataset?.act;
+  if (act === "rs-cap") { const x = rsSugOf(el.dataset.id); if (x) x.caption = el.value; save(); return; }
   if (act === "aspect") { state.gap.matrix.aspects[Number(el.dataset.i)] = el.value; save(); return; }
   if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); updateGuide("abstract"); updateSmap("abstract"); return; }
   if (act === "edit-section") {
@@ -1496,6 +1721,7 @@ function updateChip() {
 
 async function init() {
   render();
+  loadFigs().then((m) => { figData = m; if (state.results.items?.figures?.length) render(); });
   try {
     config = await api("/api/config");
     if (config.eventName) $("#eventName").textContent = config.eventName;

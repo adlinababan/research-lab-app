@@ -305,3 +305,31 @@ input.readonly { background: var(--bg); color: var(--muted); cursor: default; }
 .sel-pill { position: sticky; top: 68px; z-index: 5; width: fit-content; margin: 0 0 10px; padding: 8px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.08); font-size: 15px; font-weight: 600; color: var(--ink); }
 .sel-pill.done { background: var(--ok-tint); color: var(--ok); border-color: var(--ok); }
 .sel-pill .hint { font-weight: 400; }
+
+/* ---------- Hasil analisis milik dosen (ZIP) ---------- */
+.row-btns { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.file-btn { position: relative; cursor: pointer; }
+.file-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.file-btn.disabled { opacity: .6; pointer-events: none; }
+.file-btn:focus-within { outline: 2px solid var(--ai); outline-offset: 2px; }
+.rs-inv { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.rs-item { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.rs-item.rs-off { opacity: .6; }
+.rs-thumb img { width: 100%; max-height: 200px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+.rs-ctl { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.rs-ctl .field { margin: 0; }
+.rs-use { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.rs-name { word-break: break-all; }
+.rs-dec { max-width: 240px; }
+.mini-wrap { overflow-x: auto; max-width: 100%; }
+.mini-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.mini-table th, .mini-table td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; white-space: nowrap; }
+.mini-table th { background: var(--ai-tint); }
+.rs-prev { margin-top: 10px; }
+.rs-prev summary { cursor: pointer; padding: 6px 0; }
+mark.numflag { background: var(--err-tint); color: var(--err); outline: 2px solid var(--err); border-radius: 3px; padding: 0 2px; font-weight: 700; }
+.paper-preview .pfig { margin: 8px 0; text-align: center; break-inside: avoid; }
+.paper-preview .pfig img { max-width: 100%; background: #fff; }
+.paper-preview .pfig figcaption, .paper-preview .fcap { font-size: 8pt; text-align: left; margin-top: 4px; }
+@media (max-width: 640px) { .rs-item { grid-template-columns: 1fr; } }
