@@ -56,7 +56,7 @@ const defaultState = () => ({
   },
   meta: { model: "", label: "" },
   review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
-  results: { items: null, sug: null, applied: null, dec: "" }, // hasil analisis milik dosen (ZIP)
+  results: { items: null, sug: null, applied: null, dec: "", profile: "" }, // hasil analisis milik dosen (ZIP)
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -1045,6 +1045,115 @@ function viewDraft() {
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII"];
 const RS_TOKEN = /\{\{(table|figure):([A-Za-z0-9_-]+)\}\}/g;
 let figData = {}; // id -> dataURL (disimpan di IndexedDB, bukan localStorage)
+// Jenis analisis: menentukan isi ZIP yang disarankan, susunan hasil, dan pemeriksaan otomatis.
+const PROFILE_LIST = [
+  ["ml", "Komputasional / machine learning (Python, R)"],
+  ["sem", "SEM-PLS / CB-SEM (SmartPLS, AMOS, lavaan)"],
+  ["stats", "Statistik survei/eksperimen (SPSS, JASP, Jamovi)"],
+  ["qual", "Kualitatif (wawancara, FGD, NVivo, ATLAS.ti)"],
+  ["mixed", "Metode campuran"],
+  ["dsr", "Pengembangan aplikasi / design science"],
+];
+const EXPECT = {
+  ml: {
+    how: "Python/R: simpan tabel metrik ke CSV (<code>df.to_csv</code>), gambar dengan <code>plt.savefig</code>, output teks ke .txt, atau sertakan notebook .ipynb yang sudah dijalankan.",
+    items: [
+      ["Perbandingan model usulan dan baseline (metrik)", (c) => /accuracy|akurasi|\bf1|precision|recall|rmse|\bmae\b|\bauc\b/.test(c.tab)],
+      ["Metrik per kelas atau classification report", (c) => /classification|support|per.?kelas|per.?class/.test(c.all)],
+      ["Confusion matrix, kurva loss, atau ROC (gambar)", (c) => /confusion|roc|loss|curve|kurva/.test(c.fig)],
+      ["Konfigurasi eksperimen (split, seed, hyperparameter, perangkat)", (c) => /seed|split|epoch|learning.?rate|\blr\b|batch|hyperparam|config|gpu/.test(c.all)],
+      ["Beberapa run (mean ± std) atau uji statistik", (c) => /\bstd\b|±|fold|\bruns?\b|p.?value|wilcoxon|t.?test/.test(c.all)],
+    ],
+  },
+  sem: {
+    how: "SmartPLS 4: jalankan <i>PLS-SEM algorithm</i> dan <i>Bootstrapping</i>, lalu pada laporan pilih <b>Export › Excel</b> (atau HTML). AMOS/lavaan: salin tabel estimasi ke Excel. Diagram model: simpan sebagai PNG.",
+    items: [
+      ["Profil responden", (c) => /profil|demograf|jenis kelamin|gender|usia|\bage\b|responden/.test(c.all)],
+      ["Outer loadings", (c) => /loading/.test(c.tab)],
+      ["Reliabilitas dan validitas konvergen (Cronbach's alpha, rho_a/rho_c, AVE)", (c) => /cronbach|composite|rho_?[ac]|average variance|\bave\b/.test(c.tab)],
+      ["Validitas diskriminan (HTMT atau Fornell-Larcker)", (c) => /htmt|heterotrait|fornell/.test(c.tab)],
+      ["Bootstrapping: path coefficient, t statistik, p value", (c) => /p.?values?|t.?stat|path coef|bootstrap/.test(c.tab)],
+      ["R² (dan f², Q² bila ada)", (c) => /r.?square|r²|\br2\b|f.?square|f²|q²|\bq2\b/.test(c.tab)],
+      ["Gambar model penelitian/diagram jalur", (c) => c.nFig > 0],
+    ],
+  },
+  stats: {
+    how: "SPSS: di Output Viewer pilih <b>File › Export</b>, format <b>Excel</b> atau <b>HTML</b> (bukan .spv). JASP/Jamovi: <b>Export results</b> ke HTML.",
+    items: [
+      ["Profil responden", (c) => /profil|demograf|jenis kelamin|gender|usia|\bage\b|responden|frequenc/.test(c.all)],
+      ["Uji validitas (item-total, r hitung)", (c) => /validit|r.?hitung|corrected item|item-total|pearson|correlations/.test(c.tab)],
+      ["Uji reliabilitas (Cronbach's alpha)", (c) => /cronbach|reliab/.test(c.tab)],
+      ["Uji asumsi (normalitas, multikolinearitas, dll.)", (c) => /normal|kolmogorov|shapiro|\bvif\b|tolerance|glejser|heterosk|levene/.test(c.tab)],
+      ["Uji hipotesis (koefisien, t/F, sig., R²)", (c) => /coefficient|koefisien|anova|t.?test|\bsig\b|r square|regres|model summary/.test(c.tab)],
+    ],
+  },
+  qual: {
+    how: "Transkrip yang sudah dianonimkan sebagai DOCX/TXT (beri nama mis. <code>transkrip_I1.docx</code>). NVivo/ATLAS.ti: ekspor <b>codebook</b> atau daftar node/kode ke Excel. Peta tema: simpan sebagai PNG.",
+    items: [
+      ["Transkrip wawancara/FGD (sudah dianonimkan)", (c) => c.transcripts > 0],
+      ["Codebook atau daftar tema/kode", (c) => /code|kode|tema|theme|node|kategori/.test(c.tab)],
+      ["Profil informan (kode, peran; tanpa nama asli)", (c) => /informan|partisipan|participant|narasumber|profil/.test(c.all)],
+      ["Peta tema atau diagram (opsional)", (c) => c.nFig > 0],
+    ],
+  },
+  dsr: {
+    how: "ZIP <b>folder proyek</b> (tanpa <code>node_modules</code>, <code>vendor</code>, <code>build</code>, dan <code>.env</code>), ditambah folder <code>screenshot/</code> dan dokumen pengujian: tabel black-box (Excel/CSV), hasil SUS, atau laporan unit test (JUnit XML). Isi kode tidak dikirim ke AI; hanya ringkasan strukturnya.",
+    items: [
+      ["Folder proyek aplikasi (kode sumber)", (c) => c.project],
+      ["Screenshot antarmuka", (c) => c.nFig > 0],
+      ["Diagram rancangan (use case, ERD, arsitektur, flowchart)", (c) => /use.?case|erd|arsitektur|architecture|class|activity|sequence|flow|diagram|uml|mockup|wireframe/.test(c.fig)],
+      ["Hasil pengujian black-box atau unit test", (c) => /black.?box|test.?case|skenario|pengujian|junit|unit.?test|hasil pengujian/.test(c.all)],
+      ["Evaluasi pengguna (SUS, UAT, kuesioner)", (c) => /\bsus\b|usability|kegunaan|kuesioner|questionnaire|\buat\b|acceptance/.test(c.all)],
+    ],
+  },
+};
+EXPECT.mixed = { how: `${EXPECT.stats.how} ${EXPECT.qual.how}`, items: [EXPECT.stats.items[0], EXPECT.stats.items[2], EXPECT.stats.items[4], EXPECT.qual.items[0], EXPECT.qual.items[1]] };
+function autoProfile() {
+  const m = `${state.me.method} ${state.me.dataAvail} ${state.me.title} ${state.me.aim}`.toLowerCase();
+  const ap = effectiveApproach(); const I = state.results.items;
+  const tab = I ? I.tables.map((t) => `${t.name} ${t.headers.join(" ")}`).join(" ").toLowerCase() : "";
+  if (I?.project || ap === "dsr") return "dsr";
+  if (/smartpls|pls-sem|sem-pls|structural equation|persamaan struktural|\bamos\b|lisrel|lavaan/.test(m) || /outer.?loading|htmt|average variance|path coef/.test(tab)) return "sem";
+  if (ap === "qual") return "qual";
+  if (ap === "mixed") return "mixed";
+  if (/machine learning|deep learning|neural|klasifikasi|classification|deteksi|detection|bert|cnn|lstm|transformer|random forest|svm|xgboost|yolo|computational|komputasi/.test(m) || /accuracy|\bf1|rmse|precision/.test(tab)) return "ml";
+  if (/wawancara|interview|fgd|tematik|thematic|nvivo|atlas/.test(m)) return "qual";
+  if (/aplikasi|sistem informasi|prototype|prototipe|website|mobile app|pengembangan sistem/.test(m)) return "dsr";
+  return ap === "quant" ? "stats" : "ml";
+}
+const rsProfile = () => state.results.profile || autoProfile();
+function rsCorpus() {
+  const I = state.results.items;
+  if (!I) return null;
+  const tab = I.tables.map((t) => `${t.name} ${t.headers.join(" ")} ${t.rows.map((r) => r[0]).join(" ")}`).join(" ").toLowerCase();
+  const fig = I.figures.map((f) => f.name).join(" ").toLowerCase();
+  const txt = I.texts.map((t) => `${t.name} ${String(t.text).slice(0, 1500)}`).join(" ").toLowerCase();
+  return { tab, fig, all: `${(I.files || []).join(" ")} ${tab} ${fig} ${txt}`.toLowerCase(), nFig: I.figures.length, project: !!I.project, transcripts: I.texts.filter((t) => t.kind === "transcript" || String(t.text).length > 2000).length };
+}
+function expectHtml() {
+  const p = rsProfile(); const E = EXPECT[p]; const c = rsCorpus();
+  const items = E.items.map(([label, test]) => { const ok = c ? test(c) : null; return `<li class="${ok === null ? "" : ok ? "ok" : "miss"}">${ok === null ? "•" : ok ? "✓" : "○"} ${esc(label)}${ok === false ? ' <span class="hint">(belum terdeteksi)</span>' : ""}</li>`; }).join("");
+  return `<div class="rs-expect">
+    <label class="field rs-prof"><span>Jenis analisis${state.results.profile ? "" : " (otomatis dari judul dan rencana metode)"}</span>
+      <select data-act="rs-profile"><option value="">Otomatis: ${esc(PROFILE_LIST.find(([k]) => k === autoProfile())[1])}</option>${PROFILE_LIST.map(([k, l]) => `<option value="${k}" ${state.results.profile === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+    <div class="hint"><b>Isi ZIP yang disarankan:</b></div>
+    <ul class="rs-checklist">${items}</ul>
+    <p class="hint" style="margin:0"><b>Cara ekspor:</b> ${E.how}</p>
+  </div>`;
+}
+function projectHtml(p) {
+  if (!p) return "";
+  return `<div class="alert info"><b>Proyek aplikasi terdeteksi: ${esc(p.name)}</b><br>
+    ${p.files} file · ${p.languages.map((l) => `${esc(l.lang)} (${l.files})`).join(", ") || "bahasa belum terdeteksi"}<br>
+    Teknologi: ${esc(p.stack.join(", ") || "belum terdeteksi")}${p.dbTables.length ? `<br>Tabel basis data (${p.dbTables.length}): ${esc(p.dbTables.slice(0, 15).join(", "))}${p.dbTables.length > 15 ? "…" : ""}` : ""}
+    ${p.secretsSkipped ? `<br>${p.secretsSkipped} berkas rahasia (.env, kunci, kredensial) dilewati dan tidak dibaca.` : ""}<br>
+    <span class="hint">Isi kode tidak dikirim ke AI; hanya ringkasan ini.</span></div>`;
+}
+const CHECK_ICON = { ok: "✓", warn: "!", info: "i" };
+function checksHtml(list) {
+  if (!list?.length) return "";
+  return `<div class="rs-checks"><b>Pemeriksaan otomatis atas file Anda</b> <span class="hint">(membandingkan nilai yang dilaporkan dengan ambang yang lazim; cantumkan rujukan ambangnya di paper)</span><ul>${list.map((c) => `<li class="${c.status}"><span class="ci">${CHECK_ICON[c.status] || "•"}</span>${esc(c.text)}</li>`).join("")}</ul></div>`;
+}
 function rsSugOf(id) {
   const s = state.results.sug; if (!s) return null;
   return s.tables.find((x) => x.id === id) || s.newTables.find((x) => x.id === id) || s.figures.find((x) => x.id === id) || null;
@@ -1054,7 +1163,7 @@ function rsAll() {
   if (!s || !I) return { tables: [], figures: [] };
   const tables = [
     ...I.tables.map((t) => ({ ...t, ...(s.tables.find((x) => x.id === t.id) || { use: false }) })),
-    ...s.newTables.map((t) => ({ ...t, name: `${isId() ? "disusun dari" : "built from"} ${I.texts.find((x) => x.id === t.source)?.name || t.source}`, extracted: true })),
+    ...s.newTables.map((t) => ({ ...t, name: `disusun dari ${I.texts.find((x) => x.id === t.source)?.name || t.source}`, extracted: true })),
   ];
   const figures = I.figures.map((f) => ({ ...f, ...(s.figures.find((x) => x.id === f.id) || { use: false }) }));
   return { tables, figures };
@@ -1096,16 +1205,17 @@ function miniTable(t, max = 6) {
   const cols = Math.min(t.headers.length, 7);
   return `<div class="mini-wrap"><table class="mini-table"><tr>${t.headers.slice(0, cols).map((h) => `<th>${esc(h)}</th>`).join("")}</tr>${t.rows.slice(0, max).map((r) => `<tr>${r.slice(0, cols).map((c) => `<td>${esc(fmtCell(c))}</td>`).join("")}</tr>`).join("")}</table>${t.rows.length > max || t.headers.length > cols ? `<div class="hint">… ${t.rows.length} baris × ${t.headers.length} kolom</div>` : ""}</div>`;
 }
-function flagHtml(text, flags, map) {
+function flagHtml(text, flags, map, quotes) {
   let h = renderRich(text, map);
+  for (const q of quotes || []) { const e = esc(q); if (h.includes(e)) h = h.split(e).join(`<mark class="numflag" title="Kutipan ini tidak ditemukan kata per kata di transkrip Anda">${e}</mark>`); }
   for (const f of flags || []) h = h.split(esc(f)).join(`<mark class="numflag" title="Angka ini tidak ditemukan di file Anda">${esc(f)}</mark>`);
   return h;
 }
-function rsParas(key, ps, flags, labels) {
+function rsParas(key, ps, flags, labels, quotes) {
   const roles = ROLES[key]; const map = citationMap().map;
   const ci = (r) => roles.find(([k]) => k === r)?.[3] ?? 0;
   const lab = (r) => roles.find(([k]) => k === r)?.[1] || "Belum ditandai";
-  return ps.map((p, i) => `<div class="sm-para ${p.role ? `rc${ci(p.role)}` : "sm-none"}"><span class="sm-tag">${esc(lab(p.role))}</span>${flagHtml(fillTokens(p.text, labels), flags?.[i], map)}</div>`).join("");
+  return ps.map((p, i) => `<div class="sm-para ${p.role ? `rc${ci(p.role)}` : "sm-none"}"><span class="sm-tag">${esc(lab(p.role))}</span>${flagHtml(fillTokens(p.text, labels), flags?.[i], map, quotes?.[i])}</div>`).join("");
 }
 function rsItemHtml(x, kind, labels) {
   const lab = labels[x.id];
@@ -1126,18 +1236,19 @@ function rsItemHtml(x, kind, labels) {
 function resultsCard() {
   const d = state.draft.data; const R = state.results; const I = R.items;
   if (!d) return `<section class="card human"><h2>Hasil analisis Anda (opsional)</h2><p class="hint" style="margin:0">Setelah draf tersusun, unggah hasil olahan data Anda sendiri (ZIP) agar AI menata tabel, gambar, serta mengisi Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka Anda.</p></section>`;
-  const n = I ? I.figures.length + I.tables.length + I.texts.length : 0;
-  const inv = I ? `
+  const n = I ? I.figures.length + I.tables.length + I.texts.length + (I.project ? 1 : 0) : 0;
+  const inv = (I ? projectHtml(I.project) : "") + (I ? `
     <div class="rs-inv"><span class="chip">${I.figures.length} gambar</span><span class="chip">${I.tables.length} tabel</span><span class="chip">${I.texts.length} output teks/kode</span>${I.raw.length ? `<span class="chip warn">${I.raw.length} data mentah (tidak dikirim)</span>` : ""}${I.ignored.length ? `<span class="chip">${I.ignored.length} dilewati</span>` : ""}</div>
     ${I.files?.length ? `<p class="hint">File: ${I.files.map(esc).join(", ")}</p>` : ""}
     ${I.raw.length ? `<details><summary class="hint">Data mentah yang hanya dicatat jumlah baris dan kolomnya</summary><ul class="hint">${I.raw.map((r) => `<li>${esc(r.name)}: ${r.rows} baris; ${esc(r.headers.slice(0, 8).join(", "))}${r.headers.length > 8 ? "…" : ""}</li>`).join("")}</ul></details>` : ""}
-    ${I.ignored.length ? `<details><summary class="hint">File yang dilewati</summary><ul class="hint">${I.ignored.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : "";
+    ${I.ignored.length ? `<details><summary class="hint">File yang dilewati</summary><ul class="hint">${I.ignored.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}` : "");
   let sugHtml = "";
   if (R.sug && I) {
     const { labels } = rsLabels();
     const { tables, figures } = rsAll();
     const s = R.sug;
     const nf = [...s.flags.results, ...s.flags.conclusion, ...s.flags.abstract].flat().length;
+    const nq = s.quotes ? [...s.quotes.results, ...s.quotes.conclusion, ...s.quotes.abstract].flat().length : 0;
     const stale = R.applied && R.applied.sig !== rsSig();
     sugHtml = `
       <h3>Saran AI</h3>
@@ -1146,10 +1257,12 @@ function resultsCard() {
       ${tables.length ? `<h4>Tabel (${tables.filter((t) => t.use).length} dipakai)</h4>
         <label class="field rs-dec"><span>Desimal di tabel</span><select data-act="rs-dec"><option value="">Sesuai file</option>${["2", "3", "4"].map((v) => `<option value="${v}" ${R.dec === v ? "selected" : ""}>${v} desimal</option>`).join("")}</select></label>
         <ul class="rs-list">${tables.map((t) => rsItemHtml(t, "table", labels)).join("")}</ul>` : ""}
+      ${checksHtml(s.checks)}
       ${nf ? `<div class="alert err"><b>${nf} angka di teks usulan tidak ditemukan di file Anda</b> (ditandai merah). Bisa jadi hasil pembulatan yang berbeda, atau AI keliru. Periksa dan perbaiki sebelum dipakai.</div>` : '<div class="alert ok">✓ Semua angka di teks usulan ditemukan di file hasil Anda.</div>'}
-      <details class="rs-prev" open><summary><b>${esc(s.heading?.results || "Results and Discussion")}</b> (usulan)</summary>${rsParas("results", s.results, s.flags.results, labels)}</details>
-      <details class="rs-prev"><summary><b>${esc(s.heading?.conclusion || "Conclusion")}</b> (usulan)</summary>${rsParas("conclusion", s.conclusion, s.flags.conclusion, labels)}</details>
-      <details class="rs-prev"><summary><b>${isId() ? "Abstrak" : "Abstract"}</b> (usulan)</summary>${rsParas("abstract", s.abstract, s.flags.abstract, labels)}</details>
+      ${nq ? `<div class="alert err"><b>${nq} kutipan tidak ditemukan kata per kata di transkrip Anda</b> (ditandai merah). Ganti dengan kutipan asli atau hapus; mengubah kutipan informan termasuk fabrikasi.</div>` : s.quotes && ["qual", "mixed"].includes(s.profile) ? '<div class="alert ok">✓ Semua kutipan cocok kata per kata dengan transkrip Anda.</div>' : ""}
+      <details class="rs-prev" open><summary><b>${esc(s.heading?.results || "Results and Discussion")}</b> (usulan)</summary>${rsParas("results", s.results, s.flags.results, labels, s.quotes?.results)}</details>
+      <details class="rs-prev"><summary><b>${esc(s.heading?.conclusion || "Conclusion")}</b> (usulan)</summary>${rsParas("conclusion", s.conclusion, s.flags.conclusion, labels, s.quotes?.conclusion)}</details>
+      <details class="rs-prev"><summary><b>${isId() ? "Abstrak" : "Abstract"}</b> (usulan)</summary>${rsParas("abstract", s.abstract, s.flags.abstract, labels, s.quotes?.abstract)}</details>
       ${stale ? '<div class="alert warn">Pilihan atau caption berubah setelah diterapkan. Klik <b>Terapkan ulang</b> agar nomor tabel dan gambar di teks sesuai.</div>' : ""}
       <div class="row-btns">${btn("results-apply", R.applied ? "Terapkan ulang ke draf" : "Terapkan ke draf", { kind: "primary" })}${R.applied ? btn("results-undo", "Kembalikan draf sebelumnya", { kind: "ghost" }) : ""}</div>
       ${R.applied ? `<div class="alert ok">✓ Diterapkan: bagian Hasil dan Pembahasan, Kesimpulan, dan Abstrak di atas sudah diganti. Tabel dan gambar ikut tampil di pratinjau dan file .docx (Langkah 5).</div>` : '<p class="hint">Menerapkan akan mengganti bagian Hasil dan Pembahasan, Kesimpulan, dan Abstrak. Versi sebelumnya disimpan dan bisa dikembalikan.</p>'}`;
@@ -1157,10 +1270,11 @@ function resultsCard() {
   return `
     <section class="card ai" id="resultsCard">
       <h2>Hasil analisis Anda: unggah ZIP</h2>
-      <p class="hint" style="margin:0">Olah data Anda sendiri (Python, SPSS, Excel, dan lain-lain), lalu kemas hasilnya dalam satu ZIP: <b>tabel</b> (CSV, XLSX, JSON), <b>gambar</b> (PNG, JPG), <b>output teks</b> (TXT, LOG, mis. <code>classification_report</code>), kode (.py), atau <b>notebook .ipynb yang sudah dijalankan</b>. Research Lab tidak menghitung ulang data; AI hanya menata tabel dan gambar, lalu menulis Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka Anda.</p>
-      <div class="alert info">File dibaca di browser. Yang dikirim ke AI hanya tabel hasil (maks. 40 baris), cuplikan output teks, serta nama dan ukuran gambar; isi gambar tidak dikirim. Jangan sertakan data pribadi responden. File besar (lebih dari ${60} baris) dianggap data mentah dan hanya dicatat jumlah baris serta kolomnya.</div>
+      <p class="hint" style="margin:0">Olah data atau bangun sistem Anda sendiri (Python, SPSS, SmartPLS, NVivo, Excel, dan lain-lain), lalu kemas hasilnya dalam satu ZIP: <b>tabel</b> (Excel, CSV, HTML, JSON), <b>gambar</b> (PNG, JPG), <b>output teks</b> (TXT, LOG), <b>transkrip</b> (DOCX, TXT), <b>notebook .ipynb</b> yang sudah dijalankan, atau <b>folder proyek aplikasi</b>. Research Lab tidak menghitung ulang data; AI hanya menata tabel dan gambar, lalu menulis Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka dan kutipan Anda.</p>
+      ${expectHtml()}
+      <div class="alert info">File dibaca di browser. Yang dikirim ke AI hanya tabel hasil (maks. 40 baris), cuplikan output teks atau transkrip, ringkasan struktur proyek, serta nama dan ukuran gambar; isi gambar dan isi kode tidak dikirim. Anonimkan nama responden atau informan sebelum mengunggah. File besar (lebih dari ${60} baris) dianggap data mentah dan hanya dicatat jumlah baris serta kolomnya.</div>
       <div class="row-btns">
-        <label class="btn ghost file-btn ${busy["results-files"] ? "disabled" : ""}">${busy["results-files"] ? '<span class="spin" aria-hidden="true"></span>Membaca file…' : I ? "Ganti file hasil" : "Pilih ZIP atau file hasil"}<input type="file" data-act="results-files" multiple accept=".zip,.csv,.tsv,.xlsx,.xlsm,.json,.txt,.log,.md,.out,.ipynb,.py,.r,.png,.jpg,.jpeg,.webp" ${busy["results-files"] ? "disabled" : ""}></label>
+        <label class="btn ghost file-btn ${busy["results-files"] ? "disabled" : ""}">${busy["results-files"] ? '<span class="spin" aria-hidden="true"></span>Membaca file…' : I ? "Ganti file hasil" : "Pilih ZIP atau file hasil"}<input type="file" data-act="results-files" multiple accept=".zip,.csv,.tsv,.xlsx,.xlsm,.html,.htm,.docx,.json,.xml,.txt,.log,.md,.out,.ipynb,.py,.r,.png,.jpg,.jpeg,.webp" ${busy["results-files"] ? "disabled" : ""}></label>
         ${btn("results-suggest", R.sug ? "Minta saran ulang" : "AI: sarankan tabel, gambar, dan isi hasil", { disabled: !n, busyLabel: "Membaca hasil Anda… (20–60 detik)" })}
       </div>
       ${errBox("results-files")}${errBox("results-suggest")}
@@ -1431,8 +1545,9 @@ const actions = {
     const r = await api("/api/llm", {
       task: "results", title: state.me.title, gap: state.gap.text, lang: state.me.lang, approach: effectiveApproach(),
       abstract: d.abstract, sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs })), papers: paperPayload(false),
-      tables: I.tables.map((t) => ({ id: t.id, name: t.name, headers: t.headers, rows: t.rows.slice(0, 40) })),
+      tables: I.tables.map((t) => ({ id: t.id, name: t.name, source: t.source, headers: t.headers, rows: t.rows.slice(0, 40) })),
       texts: I.texts, figures: I.figures.map(({ id, name, w, h, context }) => ({ id, name, w, h, context })), raw: I.raw,
+      profile: rsProfile(), project: I.project || null,
     });
     state.results.sug = r.result; noteModel(r);
     if (r.compact) toast("Jawaban pertama terpotong, jadi AI diminta ulang dengan ruang lebih besar.");
@@ -1539,7 +1654,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["rs-profile", "results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1555,14 +1670,15 @@ document.addEventListener("change", (e) => {
       const out = await readUploads(files);
       figData = out.figData; delete out.figData; await saveFigs(figData);
       out.files = files.map((f) => f.name);
-      if (!out.figures.length && !out.tables.length && !out.texts.length) throw new Error("Tidak ada tabel, gambar, atau output teks yang terbaca. Periksa format file (lihat daftar file yang dilewati).");
+      if (!out.figures.length && !out.tables.length && !out.texts.length && !out.project) throw new Error("Tidak ada tabel, gambar, atau output teks yang terbaca. Periksa format file (lihat daftar file yang dilewati).");
       state.results = { ...state.results, items: out, sug: null, applied: state.results.applied };
-      toast(`Terbaca: ${out.figures.length} gambar, ${out.tables.length} tabel, ${out.texts.length} output teks.`, { ok: true });
+      toast(`Terbaca: ${out.project ? `proyek ${out.project.name} (${out.project.files} file), ` : ""}${out.figures.length} gambar, ${out.tables.length} tabel, ${out.texts.length} teks.`, { ok: true });
     });
     return;
   }
   if (act === "rs-use") { const x = rsSugOf(el.dataset.id); if (x) x.use = el.checked; save(); render(); return; }
   if (act === "rs-place") { const x = rsSugOf(el.dataset.id); if (x) x.placement = el.value; save(); render(); return; }
+  if (act === "rs-profile") { state.results.profile = el.value; save(); render(); return; }
   if (act === "rs-dec") { state.results.dec = el.value; save(); render(); return; }
   if (act === "consent") { state.me.consent = el.checked; save(); render(); return; }
   if (act === "review-done") { state.review.done[Number(el.dataset.i)] = el.checked; save(); render(); return; }

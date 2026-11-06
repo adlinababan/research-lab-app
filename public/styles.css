@@ -333,3 +333,14 @@ mark.numflag { background: var(--err-tint); color: var(--err); outline: 2px soli
 .paper-preview .pfig img { max-width: 100%; background: #fff; }
 .paper-preview .pfig figcaption, .paper-preview .fcap { font-size: 8pt; text-align: left; margin-top: 4px; }
 @media (max-width: 640px) { .rs-item { grid-template-columns: 1fr; } }
+.rs-expect { border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; }
+.rs-prof { max-width: 520px; margin: 0; }
+.rs-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 15px; }
+.rs-checklist li.ok { color: var(--ok); }
+.rs-checklist li.miss { color: var(--warn); }
+.rs-checks { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.rs-checks ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.rs-checks li { display: flex; gap: 8px; font-size: 14.5px; line-height: 1.45; }
+.rs-checks .ci { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: var(--ai); }
+.rs-checks li.ok .ci { background: var(--ok); }
+.rs-checks li.warn .ci { background: var(--warn); }

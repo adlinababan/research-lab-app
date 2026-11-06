@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   if (!String(body.title || "").trim()) return sendError(res, 400, "Judul penelitian belum diisi di langkah 1.");
   if (body.task === "review" && !(body.sections || []).length) return sendError(res, 400, "Susun draf terlebih dahulu sebelum direview.");
   if (body.task === "results" && !(body.sections || []).length) return sendError(res, 400, "Susun draf terlebih dahulu, lalu unggah hasil analisis.");
-  if (body.task === "results" && !(body.tables || []).length && !(body.texts || []).length && !(body.figures || []).length) return sendError(res, 400, "Belum ada tabel, output teks, atau gambar yang terbaca dari file Anda.");
+  if (body.task === "results" && !(body.tables || []).length && !(body.texts || []).length && !(body.figures || []).length && !body.project) return sendError(res, 400, "Belum ada tabel, output teks, atau gambar yang terbaca dari file Anda.");
   if ((body.task === "gap" || body.task === "draft") && !(body.papers || []).length) {
     return sendError(res, 400, "Pilih minimal satu makalah di langkah Literatur terlebih dahulu.");
   }
