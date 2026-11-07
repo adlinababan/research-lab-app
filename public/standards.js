@@ -81,16 +81,22 @@ const ML = [
 ];
 
 const DSR = [
-  { id: "R1", part: "M", level: "wajib", text: "Model proses pengembangan (DSRM Peffers et al. atau SDLC) dan tahapannya.", en: "Development process model (Peffers et al. DSRM or an SDLC) and its stages." },
-  { id: "R2", part: "M", level: "wajib", text: "Cara mengumpulkan kebutuhan dan daftar kebutuhan.", en: "How requirements were gathered and the list of requirements." },
-  { id: "R3", part: "M", level: "wajib", text: "Rancangan evaluasi: jenis pengujian, responden, dan kriteria keberhasilan.", en: "Evaluation design: kinds of tests, participants, and success criteria." },
-  { id: "R4", part: "H", level: "wajib", text: "Penelusuran kebutuhan ke fitur (traceability).", en: "Traceability from requirements to features." },
-  { id: "R5", part: "H", level: "wajib", text: "Rancangan: arsitektur, use case, dan ERD.", en: "Design: architecture, use case, and ERD.", zip: ["fig", "use.?case|erd|arsitektur|architecture|class|activity|sequence|flow|diagram|uml"] },
-  { id: "R6", part: "H", level: "wajib", text: "Implementasi: teknologi dan modul utama (screenshot hanya ilustrasi).", en: "Implementation: technology stack and main modules (screenshots only illustrate).", zip: ["@project"] },
-  { id: "R7", part: "H", level: "wajib", text: "Pengujian fungsional (black-box atau unit test) dengan jumlah lulus dan gagal.", en: "Functional testing (black-box or unit tests) with passed and failed counts.", zip: ["all", "black.?box|test.?case|skenario|pengujian|junit|unit.?test"] },
-  { id: "R8", part: "H", level: "wajib", text: "Evaluasi pengguna (SUS atau UAT) dengan jumlah responden dan skor.", en: "User evaluation (SUS or UAT) with number of participants and scores.", zip: ["all", "\\bsus\\b|usability|kegunaan|kuesioner|questionnaire|\\buat\\b|acceptance"] },
-  { id: "R9", part: "H", level: "dianjurkan", text: "Kinerja: waktu respons atau uji beban.", en: "Performance: response time or load testing.", zip: ["all", "response time|waktu respons|load|latency|throughput|jmeter|lighthouse"] },
-  { id: "R10", part: "P", level: "wajib", text: "Sejauh mana artefak menyelesaikan masalah, dibandingkan sistem atau penelitian lain.", en: "How far the artefact solves the problem, compared with other systems or studies." },
+  { id: "R1", part: "M", level: "wajib", text: "Masalah dan tujuan solusi yang terukur (mis. waktu pencatatan turun, bukan sekadar \"memudahkan\").", en: "The problem and measurable solution objectives (e.g. recording time reduced, not merely \"makes it easier\")." },
+  { id: "R2", part: "M", level: "wajib", text: "Model proses (DSRM Peffers et al. atau SDLC) dan alasan memilih metode pengembangan (Waterfall, Prototyping, Scrum, RAD).", en: "Process model (Peffers et al. DSRM or an SDLC) and why the development method (Waterfall, Prototyping, Scrum, RAD) was chosen." },
+  { id: "R3", part: "M", level: "wajib", text: "Cara mengumpulkan kebutuhan, serta kebutuhan fungsional dan non-fungsional (keamanan, kinerja, ketersediaan).", en: "How requirements were gathered, and the functional and non-functional requirements (security, performance, availability)." },
+  { id: "R4", part: "M", level: "wajib", text: "Rancangan evaluasi: tingkat pengujian (unit, integrasi, sistem/black-box, UAT), responden, dan kriteria keberhasilan.", en: "Evaluation design: test levels (unit, integration, system/black-box, acceptance), participants, and success criteria." },
+  { id: "R5", part: "M", level: "dianjurkan", text: "Atribut kualitas yang diuji dipetakan ke ISO/IEC 25010.", en: "Quality attributes evaluated, mapped to ISO/IEC 25010." },
+  { id: "R6", part: "H", level: "wajib", text: "Penelusuran kebutuhan ke fitur dan ke pengujian (traceability).", en: "Traceability from requirements to features and to tests." },
+  { id: "R7", part: "H", level: "wajib", text: "Rancangan: arsitektur, use case, dan ERD.", en: "Design: architecture, use case, and ERD.", zip: ["fig", "use.?case|erd|arsitektur|architecture|class|activity|sequence|flow|diagram|uml"] },
+  { id: "R8", part: "H", level: "wajib", text: "Implementasi: teknologi dan modul utama (screenshot hanya ilustrasi).", en: "Implementation: technology stack and main modules (screenshots only illustrate).", zip: ["@project"] },
+  { id: "R9", part: "H", level: "wajib", text: "Pengujian fungsional (black-box atau unit test) dengan jumlah lulus dan gagal.", en: "Functional testing (black-box or unit tests) with passed and failed counts.", zip: ["all", "black.?box|test.?case|skenario|pengujian|junit|unit.?test"] },
+  { id: "R10", part: "H", level: "wajib", text: "Evaluasi pengguna (SUS atau UAT): jumlah responden, skor rata-rata, dan interpretasinya. Wajib bila paper mengklaim aplikasi mudah digunakan.", en: "User evaluation (SUS or UAT): number of participants, mean score, and its interpretation; required whenever the paper claims ease of use.", zip: ["all", "\\bsus\\b|usability|kegunaan|kuesioner|questionnaire|\\buat\\b|acceptance"] },
+  { id: "R11", part: "H", level: "wajib", text: "Perbandingan sebelum–sesudah, atau dengan sistem lama/alternatif, memakai ukuran yang sama.", en: "A before–after comparison, or a comparison with the existing or an alternative system, using the same measures.", zip: ["all", "sebelum|sesudah|before|after|manual|existing|sistem lama|perbandingan|comparison|baseline"] },
+  { id: "R12", part: "H", level: "dianjurkan", text: "Kinerja: waktu respons atau uji beban.", en: "Performance: response time or load testing.", zip: ["all", "response time|waktu respons|load|latency|throughput|jmeter|lighthouse"] },
+  { id: "R13", part: "H", level: "dianjurkan", text: "Keamanan dasar (mis. pemeriksaan berdasarkan OWASP Top 10) bila menyimpan data pribadi.", en: "Basic security checks (e.g. against the OWASP Top 10) when personal data is stored.", zip: ["all", "owasp|security|keamanan|penetration|vulnerab|\\bzap\\b|burp"] },
+  { id: "R14", part: "D", level: "dianjurkan", text: "Ketersediaan artefak: repositori kode, demo, atau video.", en: "Artefact availability: code repository, demo, or video." },
+  { id: "R15", part: "P", level: "wajib", text: "Sejauh mana artefak menyelesaikan masalah, dibandingkan sistem atau penelitian lain.", en: "How far the artefact solves the problem, compared with other systems or studies." },
+  { id: "R16", part: "P", level: "wajib", text: "Jenis kontribusi dinyatakan jelas: artefak baru, perbaikan desain, atau penerapan solusi lama di konteks baru, bukan sekadar \"membangun aplikasi X di Y\".", en: "The type of contribution is explicit: a new artefact, an improved design, or a known solution applied to a new context, not merely \"building app X at Y\"." },
 ];
 
 const MIXED = [
@@ -106,7 +112,7 @@ export const STANDARDS = {
   stats: { name: "Statistik survei/eksperimen (SPSS, JASP)", sources: "APA JARS-Quant (Appelbaum et al., 2018); ACM SIGSOFT Empirical Standards: Questionnaire Surveys, Experiments", items: STATS },
   qual: { name: "Kualitatif (wawancara, FGD)", sources: "COREQ (Tong et al., 2007); SRQR (O'Brien et al., 2014); ACM SIGSOFT Empirical Standards: Qualitative Surveys", items: QUAL },
   mixed: { name: "Metode campuran", sources: "APA JARS-Mixed (Levitt et al., 2018); standar kuantitatif dan kualitatif di atas", items: MIXED },
-  dsr: { name: "Pengembangan aplikasi / design science", sources: "Peffers et al. (2007), DSRM; Hevner et al. (2004); ACM SIGSOFT Empirical Standards: Engineering Research", items: DSR },
+  dsr: { name: "Pengembangan aplikasi / design science", sources: "Peffers et al. (2007), DSRM; Hevner et al. (2004); ISO/IEC 25010 (model kualitas perangkat lunak); Brooke (1996), SUS; OWASP Top 10; ACM SIGSOFT Empirical Standards: Engineering Research", items: DSR },
 };
 export const COMMON_ITEMS = COMMON;
 export const COMMON_SOURCES = "ACM SIGSOFT Empirical Standards: General Standard; IEEE Author Center, Structure Your Article";
