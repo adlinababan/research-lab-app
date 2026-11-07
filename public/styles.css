@@ -389,3 +389,14 @@ body.locked { overflow: hidden; }
 .bp-meta dd { margin: 0; }
 .bp-disc { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 @media (max-width: 640px) { .bp-meta { grid-template-columns: 1fr; } }
+
+/* ---------- Kunci rencana & sinkronisasi ---------- */
+.bp-lockbox { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.bp-lockbox > div { flex: 1 1 320px; }
+.sync-list { display: grid; gap: 10px; }
+.sync-part { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--surface); display: grid; gap: 6px; }
+.sync-part.sync-done { opacity: .85; }
+.sync-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sync-diff { font-family: var(--f-serif, Georgia, serif); font-size: 15px; line-height: 1.6; max-height: 420px; overflow: auto; padding: 8px 10px; background: var(--bg); border-radius: 8px; }
+.sync-diff del, summary del { background: var(--err-tint); color: var(--err); text-decoration: line-through; }
+.sync-diff ins, summary ins { background: var(--ok-tint); color: var(--ok); text-decoration: none; }

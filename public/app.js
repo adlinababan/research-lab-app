@@ -69,7 +69,8 @@ const defaultState = () => ({
   meta: { model: "", label: "" },
   review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
   results: { items: null, sug: null, applied: null, dec: "", profile: "" },
-  blueprint: { data: null, basis: "" }, // Rencana Hasil // hasil analisis milik dosen (ZIP)
+  blueprint: { data: null, basis: "", locked: null }, // Rencana Hasil; locked = {at, hash, snapshot}
+  sync: { data: null, backup: {}, applied: {} }, // usulan sinkronisasi paper dengan hasil // hasil analisis milik dosen (ZIP)
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -1065,6 +1066,7 @@ function viewDraft() {
       ${editor}
     </section>
     ${resultsCard()}
+    ${syncCard()}
     ${navRow("Lanjut ke integritas dan ekspor")}`;
 }
 
@@ -1214,6 +1216,7 @@ function blueprintCard() {
         </li>`).join("")}</ol>
       ${bp.discussion.length ? `<h3>Rencana pembahasan</h3><ul class="bp-disc">${bp.discussion.map((d) => `<li><b>${esc(d.question)}</b>: ${esc(d.aspect)}${d.refs.length ? `<div class="hint">Bandingkan dengan: ${d.refs.map((n) => { const w = state.lit.selected.find((x) => x.n === n); return w ? `${esc(String(w.title).slice(0, 80))}${String(w.title).length > 80 ? "…" : ""} (${esc(w.year || "n.d.")})` : ""; }).filter(Boolean).join("; ")}</div>` : ""}</li>`).join("")}</ul>` : ""}
       ${bp.notes.length ? `<div class="alert info"><b>Keputusan yang masih perlu Anda ambil:</b><ul>${bp.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+      ${lockHtml()}
       <div class="row-btns"><button type="button" class="btn ghost" data-act="bp-copy">Salin rencana</button><button type="button" class="btn ghost" data-act="bp-download">Unduh rencana analisis (.html, bisa dibuka di Word)</button></div>
       ${state.draft.data ? '<p class="hint" style="margin:0">Draf di bawah disusun mengikuti rencana yang ada saat draf dibuat. Bila rencana diubah, susun ulang draf.</p>' : '<p class="hint" style="margin:0">Draf akan memakai rencana ini: hipotesis/pertanyaan, label, dan caption tabel yang sama.</p>'}`;
   }
@@ -1242,7 +1245,7 @@ function bpHtmlDoc() {
     `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;font-size:10pt"><tr>${x.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${(x.rows.length ? x.rows : ["", "", ""]).map((r) => `<tr>${x.columns.map((_, k) => `<td>${k === 0 && r ? esc(r) : "&nbsp;"}</td>`).join("")}</tr>`).join("")}</table>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Rencana Hasil</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:11pt;max-width:800px">
 <h1 style="font-size:16pt">Rencana Hasil (rencana analisis)</h1>
-<p><b>Judul:</b> ${esc(state.me.title)}<br><b>Jenis penelitian:</b> ${esc(S.name)}<br><b>Disusun dengan:</b> Research Lab, ${new Date().toLocaleDateString("id-ID")}. Rencana struktur saja; tabel sengaja kosong dan diisi dari analisis tim.</p>
+<p><b>Judul:</b> ${esc(state.me.title)}<br><b>Jenis penelitian:</b> ${esc(S.name)}<br><b>Disusun dengan:</b> Research Lab, ${new Date().toLocaleDateString("id-ID")}.${state.blueprint.locked ? ` <b>Dikunci:</b> ${new Date(state.blueprint.locked.at).toLocaleString("id-ID")}, sidik jari SHA-256 ${state.blueprint.locked.hash}.` : ""} Rencana struktur saja; tabel sengaja kosong dan diisi dari analisis tim.</p>
 <h2 style="font-size:13pt">${bp.questions.some((q) => q.id.startsWith("H")) ? "Hipotesis" : "Pertanyaan penelitian"}</h2><ul>${bp.questions.map((q) => `<li><b>${esc(q.id)}</b>: ${esc(q.text)}</li>`).join("")}</ul>
 <h2 style="font-size:13pt">Tabel dan gambar</h2>
 ${bpOrdered(bp).map((x) => `<h3 style="font-size:11pt">${esc(lab[x.id])}. ${esc(x.caption)}${x.question !== "-" ? ` (${esc(x.question)})` : ""}</h3>${shell(x)}
@@ -1250,6 +1253,145 @@ ${bpOrdered(bp).map((x) => `<h3 style="font-size:11pt">${esc(lab[x.id])}. ${esc(
 <h2 style="font-size:13pt">Rencana pembahasan</h2><ul>${bp.discussion.map((d) => `<li><b>${esc(d.question)}</b>: ${esc(d.aspect)}</li>`).join("")}</ul>
 ${bp.notes.length ? `<h2 style="font-size:13pt">Keputusan yang masih perlu diambil</h2><ul>${bp.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
 <p style="font-size:9pt;color:#555">Standar minimum: ${esc(S.sources)}. Bukan aturan resmi IEEE.</p></body></html>`;
+}
+
+// ---------- Kunci Rencana Hasil + perubahan dari rencana ----------
+async function sha256Hex(text) {
+  try { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
+  catch { return ""; }
+}
+const bpClean = (d) => ({ questions: d.questions, items: d.items.map(({ flag, ...x }) => x), discussion: d.discussion });
+// Daftar perubahan (Bahasa Indonesia) yang harus diungkapkan di paper.
+function bpDeviations() {
+  const B = state.blueprint; const out = [];
+  if (!B.locked || !B.data) return out;
+  const old = B.locked.snapshot, cur = B.data;
+  const qOld = new Map(old.questions.map((q) => [q.id, q.text])), qCur = new Map(cur.questions.map((q) => [q.id, q.text]));
+  for (const [id, t] of qOld) if (!qCur.has(id)) out.push(`${id} dihapus dari rencana (semula: "${t}").`); else if (qCur.get(id).trim() !== t.trim()) out.push(`${id} diubah dari "${t}" menjadi "${qCur.get(id)}".`);
+  for (const [id, t] of qCur) if (!qOld.has(id)) out.push(`${id} ditambahkan setelah rencana dikunci: "${t}".`);
+  const iOld = new Map(old.items.map((x) => [x.id, x])), iCur = new Map(cur.items.map((x) => [x.id, x]));
+  for (const [id, x] of iOld) {
+    const y = iCur.get(id);
+    if (!y) out.push(`Rencana "${x.caption}" dihapus.`);
+    else if (y.caption.trim() !== x.caption.trim() || y.kind !== x.kind || y.question !== x.question) out.push(`Rencana "${x.caption}" diubah menjadi "${y.caption}"${y.question !== x.question ? ` (menjawab ${y.question})` : ""}.`);
+  }
+  for (const [id, y] of iCur) if (!iOld.has(id)) out.push(`Ditambahkan setelah rencana dikunci: "${y.caption}".`);
+  // Dibandingkan dengan hasil yang diunggah.
+  const s = state.results.sug;
+  if (s?.planMatch) {
+    for (const m of s.planMatch) { const it = iCur.get(m.plan); if (it && !m.output) out.push(`Direncanakan tetapi belum ada hasilnya: "${it.caption}".`); }
+    const matched = new Set(s.planMatch.map((m) => m.output).filter(Boolean));
+    const { tables, figures } = rsAll();
+    for (const x of [...tables, ...figures]) if (x.use && !matched.has(x.id)) out.push(`Hasil tambahan di luar rencana (eksploratif): "${x.caption || x.name}".`);
+  }
+  return out;
+}
+function lockHtml() {
+  const B = state.blueprint;
+  if (!B.data) return "";
+  if (!B.locked) return `<div class="alert info bp-lockbox"><div><b>Kunci rencana sebelum mengambil atau mengunggah data.</b> Rencana yang dikunci disimpan bertanggal dengan sidik jari. Perubahan setelahnya tetap boleh, tetapi dicatat dan diungkapkan di bagian Metode, sehingga hipotesis tidak bisa diam-diam disesuaikan dengan hasil.</div><button type="button" class="btn primary" data-act="bp-lock">🔒 Kunci rencana</button></div>`;
+  const dev = bpDeviations();
+  return `<div class="alert ok"><b>🔒 Rencana dikunci</b> ${new Date(B.locked.at).toLocaleString("id-ID")} · sidik jari <code>${esc(B.locked.hash.slice(0, 12))}</code><br><span class="hint">Waktu berasal dari perangkat ini. Sidik jari membuktikan isi rencana yang dikunci; cantumkan di lampiran bila perlu.</span></div>
+    ${dev.length ? `<div class="alert warn"><b>Perubahan dari rencana terkunci (${dev.length})</b><ul>${dev.map((d) => `<li>${esc(d)}</li>`).join("")}</ul><span class="hint">Ini wajar dalam penelitian, asalkan diungkapkan. Langkah "Sinkronkan paper" akan menuliskannya di bagian Metode.</span></div>` : '<p class="hint" style="margin:0">Belum ada perubahan dari rencana terkunci.</p>'}`;
+}
+
+// ---------- Sinkronkan paper dengan hasil ----------
+function diffWords(a, b) {
+  const A = String(a || "").split(/(\s+)/).filter((x) => x !== ""), Bw = String(b || "").split(/(\s+)/).filter((x) => x !== "");
+  const n = A.length, m = Bw.length;
+  if (n * m > 4_000_000) return `<del>${esc(a)}</del><br><ins>${esc(b)}</ins>`;
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === Bw[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (A[i] === Bw[j]) { ops.push(["eq", A[i]]); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) ops.push(["del", A[i++]]);
+    else ops.push(["ins", Bw[j++]]);
+  }
+  while (i < n) ops.push(["del", A[i++]]);
+  while (j < m) ops.push(["ins", Bw[j++]]);
+  // Satukan perubahan berurutan (termasuk spasi/kata pendek yang kebetulan sama di tengahnya) menjadi satu blok hapus + satu blok tambah.
+  let out = "", k = 0;
+  const isGlue = (o) => o[0] === "eq" && (/^\s+$/.test(o[1]) || o[1].length <= 3);
+  while (k < ops.length) {
+    if (ops[k][0] === "eq") { out += esc(ops[k][1]); k++; continue; }
+    let del = "", ins = "", e = k;
+    while (e < ops.length && (ops[e][0] !== "eq" || (isGlue(ops[e]) && ops.slice(e + 1, e + 4).some((o) => o[0] !== "eq")))) {
+      const [t, w] = ops[e];
+      if (t !== "ins") del += w;
+      if (t !== "del") ins += w;
+      e++;
+    }
+    const lead = del.match(/^\s*/)[0];
+    out += `${lead}${del.trim() ? `<del>${esc(del.trim())}</del>` : ""}${del.trim() && ins.trim() ? " " : ""}${ins.trim() ? `<ins>${esc(ins.trim())}</ins>` : ""}${/\s$/.test(ins || del) ? " " : ""}`;
+    k = e;
+  }
+  return out;
+}
+const SYNC_PARTS = [["title", "Judul"], ["keywords", "Kata kunci"], ["intro", "Pendahuluan"], ["method", "Metode"]];
+function syncCurrent(k) {
+  const d = state.draft.data;
+  if (k === "title") return state.me.title;
+  if (k === "keywords") return state.draft.keywords;
+  return (d.sections[k === "intro" ? 0 : 2]?.paragraphs || []).join("\n\n");
+}
+function syncProposed(k) {
+  const x = state.sync.data?.[k]; if (!x) return "";
+  return k === "title" || k === "keywords" ? x.proposed : x.paragraphs.map((p) => p.text).join("\n\n");
+}
+// Cek konsistensi seluruh paper (tanpa AI).
+function consistencyIssues() {
+  const d = state.draft.data; if (!d) return [];
+  const out = [];
+  const sec = d.sections.map((s) => s.paragraphs.join("\n"));
+  const all = [d.abstract, ...sec].join("\n");
+  const results = sec[3] || "";
+  const dec = (t) => [...new Set((String(t).match(/(?<![\w.,])\d+[.,]\d+(?![\w])/g) || []))];
+  const inRes = (v) => results.includes(v) || results.includes(v.replace(",", ".")) || results.includes(v.replace(".", ","));
+  const absMiss = dec(d.abstract).filter((v) => !inRes(v)); if (absMiss.length) out.push(["Abstrak", `Angka ${absMiss.join(", ")} ada di Abstrak tetapi tidak muncul di Hasil dan Pembahasan.`]);
+  const conMiss = dec(sec[4]).filter((v) => !inRes(v)); if (conMiss.length) out.push(["Kesimpulan", `Angka ${conMiss.join(", ")} ada di Kesimpulan tetapi tidak muncul di Hasil dan Pembahasan.`]);
+  const P = rsPlaced();
+  const placed = new Set([...P.tables.map((t) => t.label), ...P.figures.map((f) => f.label), isId() ? "Tabel I" : "Table I", ...(P.placeholderFig1 ? [isId() ? "Gambar 1" : "Fig. 1"] : [])]);
+  const refs = [...new Set(all.match(/\b(?:Tabel|Table)\s+[IVX]+\b|\b(?:Gambar\s+\d+|Fig\.\s*\d+)/g) || [])].map((x) => x.replace(/\s+/g, " "));
+  const orphan = refs.filter((r) => !placed.has(r)); if (state.results.applied && orphan.length) out.push(["Tabel/gambar", `${orphan.join(", ")} disebut di teks tetapi tidak ada tabel/gambarnya.`]);
+  const unref = [...placed].filter((l) => !refs.includes(l) && !/^(Tabel|Table) I$/.test(l)); if (unref.length) out.push(["Tabel/gambar", `${unref.join(", ")} ada tetapi tidak pernah disebut di teks.`]);
+  const ids = (t) => new Set(String(t).match(/\b(?:H|RQ)\d\b/g) || []);
+  const hi = ids(sec[0]), hr = ids(results);
+  const notAnswered = [...hi].filter((x) => !hr.has(x)); if (notAnswered.length) out.push(["Hipotesis/RQ", `${notAnswered.join(", ")} ada di Pendahuluan tetapi tidak dijawab di Hasil.`]);
+  const notStated = [...hr].filter((x) => !hi.has(x)); if (notStated.length) out.push(["Hipotesis/RQ", `${notStated.join(", ")} dibahas di Hasil tetapi tidak dinyatakan di Pendahuluan.`]);
+  const ph = ["Abstrak", ...d.sections.map((s) => s.heading)].map((h, i) => [h, (String([d.abstract, ...sec][i]).match(/\[(?!\d+\])[^[\]]+\]/g) || []).length]).filter(([, n]) => n);
+  if (ph.length) out.push(["Placeholder", `Masih ada placeholder: ${ph.map(([h, n]) => `${h} (${n})`).join(", ")}.`]);
+  return out;
+}
+function syncCard() {
+  if (!state.draft.data) return "";
+  if (!state.results.applied) return `<section class="card"><h2>Sinkronkan paper dengan hasil</h2><p class="hint" style="margin:0">Tersedia setelah hasil analisis diunggah dan diterapkan. Langkah ini memperbarui Judul, Kata kunci, Pendahuluan, dan Metode agar sesuai hasil sebenarnya, termasuk mengungkapkan perubahan dari Rencana Hasil.</p></section>`;
+  const S = state.sync; const D = S.data; const issues = consistencyIssues();
+  const partHtml = ([k, label]) => {
+    const x = D[k]; const applied = S.applied?.[k];
+    if (!x?.change) return `<div class="sync-part"><div class="sync-head"><b>${label}</b><span class="tag std-opt">✓ Tidak perlu diubah</span></div></div>`;
+    const flags = (x.flags || []).flat();
+    return `<div class="sync-part ${applied ? "sync-done" : ""}">
+      <div class="sync-head"><b>${label}</b>${applied ? '<span class="tag std-opt">Diterapkan</span>' : '<span class="tag std-req">Usulan perubahan</span>'}</div>
+      ${x.summary || x.reason ? `<div class="hint">${esc(x.summary || x.reason)}</div>` : ""}
+      ${flags.length ? `<div class="alert err">Angka ${flags.map(esc).join(", ")} tidak ditemukan di file hasil atau draf. Periksa sebelum menerapkan.</div>` : ""}
+      <details ${applied ? "" : "open"}><summary class="hint">Perbandingan sebelum–sesudah (<del>dihapus</del>, <ins>ditambahkan</ins>)</summary><div class="sync-diff">${diffWords(applied ? (typeof S.backup[k] === "string" ? S.backup[k] : (S.backup[k]?.paragraphs || []).join("\n\n")) : syncCurrent(k), syncProposed(k)).replace(/\n\n/g, "<br><br>")}</div></details>
+      <div class="row-btns">${applied ? `<button type="button" class="btn ghost small" data-act="sync-undo" data-k="${k}">Kembalikan versi sebelumnya</button>` : `<button type="button" class="btn primary small" data-act="sync-apply" data-k="${k}">Terapkan</button>`}</div>
+    </div>`;
+  };
+  return `
+    <section class="card ai" id="syncCard">
+      <h2>Sinkronkan paper dengan hasil</h2>
+      <p class="hint" style="margin:0">Hasil dan Pembahasan, Kesimpulan, dan Abstrak sudah diperbarui dari file Anda. Langkah ini mengusulkan pembaruan bagian lain yang masih berisi versi rencana: Judul, Kata kunci, Pendahuluan (tujuan, hipotesis, kontribusi), dan Metode (fakta pelaksanaan dan perubahan dari rencana). Terapkan per bagian setelah Anda periksa.</p>
+      ${state.blueprint.data && !state.blueprint.locked ? '<div class="alert warn">Rencana Hasil belum dikunci, jadi perubahan dari rencana tidak bisa dicatat.</div>' : ""}
+      ${bpDeviations().length ? `<div class="hint">${bpDeviations().length} perubahan dari rencana terkunci akan diungkapkan di Metode.</div>` : ""}
+      <div>${btn("sync-make", D ? "Usulkan ulang" : "AI: usulkan pembaruan menyeluruh", { busyLabel: "Menyelaraskan paper… (20–60 detik)" })}</div>
+      ${errBox("sync-make")}${promptViewer("sync")}
+      ${D ? `<div class="sync-list">${SYNC_PARTS.map(partHtml).join("")}</div>
+        ${D.issues.length ? `<div class="alert info"><b>Hal lain yang perlu Anda perbaiki sendiri:</b><ul>${D.issues.map((x) => `<li><b>${esc(x.where)}</b>: ${esc(x.issue)}${x.suggestion ? ` <span class="hint">Saran: ${esc(x.suggestion)}</span>` : ""}</li>`).join("")}</ul></div>` : ""}` : ""}
+      <div class="rs-checks"><b>Cek konsistensi seluruh paper</b> <span class="hint">(otomatis, tanpa AI)</span>
+        ${issues.length ? `<ul>${issues.map(([w, t]) => `<li class="warn"><span class="ci">!</span><span><b>${esc(w)}</b>: ${esc(t)}</span></li>`).join("")}</ul>` : '<ul><li class="ok"><span class="ci">✓</span>Tidak ditemukan ketidakkonsistenan.</li></ul>'}</div>
+    </section>`;
 }
 
 // ---------- Standar minimum per jenis penelitian ----------
@@ -1422,6 +1564,7 @@ function resultsCard() {
         <label class="field rs-dec"><span>Desimal di tabel</span><select data-act="rs-dec"><option value="">Sesuai file</option>${["2", "3", "4"].map((v) => `<option value="${v}" ${R.dec === v ? "selected" : ""}>${v} desimal</option>`).join("")}</select></label>
         <ul class="rs-list">${tables.map((t) => rsItemHtml(t, "table", labels)).join("")}</ul>` : ""}
       ${checksHtml(s.checks)}
+      ${state.blueprint.locked && bpDeviations().length ? `<div class="alert warn"><b>Perubahan dari rencana terkunci (${bpDeviations().length})</b><ul>${bpDeviations().map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div>` : ""}
       ${nf ? `<div class="alert err"><b>${nf} angka di teks usulan tidak ditemukan di file Anda</b> (ditandai merah). Bisa jadi hasil pembulatan yang berbeda, atau AI keliru. Periksa dan perbaiki sebelum dipakai.</div>` : '<div class="alert ok">✓ Semua angka di teks usulan ditemukan di file hasil Anda.</div>'}
       ${nq ? `<div class="alert err"><b>${nq} kutipan tidak ditemukan kata per kata di transkrip Anda</b> (ditandai merah). Ganti dengan kutipan asli atau hapus; mengubah kutipan informan termasuk fabrikasi.</div>` : s.quotes && ["qual", "mixed"].includes(s.profile) ? '<div class="alert ok">✓ Semua kutipan cocok kata per kata dengan transkrip Anda.</div>' : ""}
       <details class="rs-prev" open><summary><b>${esc(s.heading?.results || "Results and Discussion")}</b> (usulan)</summary>${rsParas("results", s.results, s.flags.results, labels, s.quotes?.results)}</details>
@@ -1435,6 +1578,7 @@ function resultsCard() {
     <section class="card ai" id="resultsCard">
       <h2>Hasil analisis Anda: unggah ZIP</h2>
       <p class="hint" style="margin:0">Olah data atau bangun sistem Anda sendiri (Python, SPSS, SmartPLS, NVivo, Excel, dan lain-lain), lalu kemas hasilnya dalam satu ZIP: <b>tabel</b> (Excel, CSV, HTML, JSON), <b>gambar</b> (PNG, JPG), <b>output teks</b> (TXT, LOG), <b>transkrip</b> (DOCX, TXT), <b>notebook .ipynb</b> yang sudah dijalankan, atau <b>folder proyek aplikasi</b>. Research Lab tidak menghitung ulang data; AI hanya menata tabel dan gambar, lalu menulis Hasil dan Pembahasan, Kesimpulan, dan Abstrak dari angka dan kutipan Anda.</p>
+      ${state.blueprint.data && !state.blueprint.locked ? '<div class="alert warn bp-lockbox"><div><b>Rencana Hasil belum dikunci.</b> Kunci dulu sebelum mengunggah hasil, agar perubahan dari rencana tercatat dan bisa diungkapkan di paper.</div><button type="button" class="btn ghost" data-act="bp-lock">🔒 Kunci rencana</button></div>' : ""}
       ${expectHtml()}
       <div class="alert info">File dibaca di browser. Yang dikirim ke AI hanya tabel hasil (maks. 40 baris), cuplikan output teks atau transkrip, ringkasan struktur proyek, serta nama dan ukuran gambar; isi gambar dan isi kode tidak dikirim. Anonimkan nama responden atau informan sebelum mengunggah. File besar (lebih dari ${60} baris) dianggap data mentah dan hanya dicatat jumlah baris serta kolomnya.</div>
       <div class="row-btns">
@@ -1686,7 +1830,7 @@ const actions = {
     // Teks dikirim dengan nomor sitasi IEEE final (urutan kemunculan), sama dengan .docx.
     const renum = (t) => String(t || "").replace(CITE_RE, (m, n) => { const k = order.indexOf(Number(n)); return k >= 0 ? `[${k + 1}]` : m; });
     const r = await api("/api/llm", {
-      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(), profile: rsProfile(), blueprint: bpForApi(),
+      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(), profile: rsProfile(), blueprint: bpForApi(), deviations: bpDeviations(),
       abstract: d.abstract, keywords: state.draft.keywords,
       sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs.map(renum) })),
       references: refs,
@@ -1712,6 +1856,39 @@ const actions = {
     state.blueprint = { data: r.result, basis: bpBasis() }; noteModel(r);
     toast("Rencana hasil tersusun. Periksa dan sunting sebelum menyusun draf.", { ok: true });
   }),
+  "bp-lock": async () => {
+    const bp = state.blueprint.data; if (!bp || state.blueprint.locked) return;
+    if (!window.confirm("Kunci Rencana Hasil sekarang? Rencana tetap bisa diubah setelahnya, tetapi setiap perubahan akan dicatat dan perlu diungkapkan di paper.")) return;
+    const snapshot = structuredClone(bpClean(bp));
+    const hash = await sha256Hex(JSON.stringify(snapshot));
+    state.blueprint.locked = { at: Date.now(), hash, snapshot };
+    save(); render(); toast("Rencana dikunci.", { ok: true });
+  },
+  "sync-make": () => runTask("sync-make", async () => {
+    const d = state.draft.data; const I = state.results.items || { tables: [], texts: [], raw: [] };
+    const r = await api("/api/llm", {
+      task: "sync", title: state.me.title, keywords: state.draft.keywords, lang: state.me.lang, abstract: d.abstract,
+      sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs })), papers: paperPayload(false),
+      tables: I.tables.map((t) => ({ name: t.name, headers: t.headers, rows: t.rows.slice(0, 40) })), texts: I.texts.map((t) => ({ name: t.name, text: String(t.text).slice(0, 4000) })),
+      raw: I.raw, project: I.project || null, deviations: bpDeviations(), profile: rsProfile(),
+    });
+    state.sync = { data: r.result, backup: {}, applied: {} }; noteModel(r);
+  }),
+  "sync-apply": (el) => {
+    const k = el.dataset.k; const S = state.sync; const x = S.data?.[k]; const d = state.draft.data; if (!x || !d) return;
+    S.backup[k] = k === "intro" || k === "method" ? structuredClone(d.sections[k === "intro" ? 0 : 2]) : syncCurrent(k);
+    if (k === "title") { state.me.title = x.proposed; if (state.blueprint.locked) state.blueprint.basis = bpBasis(); }
+    else if (k === "keywords") state.draft.keywords = x.proposed;
+    else { const sec = d.sections[k === "intro" ? 0 : 2]; sec.paragraphs = x.paragraphs.map((p) => p.text); sec.roles = x.paragraphs.map((p) => p.role); sec.orig = [...sec.paragraphs]; }
+    S.applied[k] = true; save(); render(); toast("Diterapkan. Periksa hasilnya di editor draf.", { ok: true });
+  },
+  "sync-undo": (el) => {
+    const k = el.dataset.k; const S = state.sync; const d = state.draft.data; if (!S.applied?.[k]) return;
+    if (k === "title") { state.me.title = S.backup[k]; if (state.blueprint.locked) state.blueprint.basis = bpBasis(); }
+    else if (k === "keywords") state.draft.keywords = S.backup[k];
+    else d.sections[k === "intro" ? 0 : 2] = S.backup[k];
+    delete S.applied[k]; save(); render(); toast("Dikembalikan ke versi sebelumnya.");
+  },
   "bp-del": (el) => {
     const bp = state.blueprint.data; if (!bp) return;
     bp.items = bp.items.filter((x) => x.id !== el.dataset.id); save(); render();
@@ -1770,6 +1947,7 @@ const actions = {
       if (r.compact) toast("Jawaban pertama terlalu panjang, jadi draf disusun ulang otomatis dalam versi ringkas.");
       state.draft.data = r.result;
       state.results.applied = null; // draf baru: hasil unggahan perlu diterapkan ulang
+      state.sync = { data: null, backup: {}, applied: {} };
       if (!state.draft.keywords.trim() && r.result.keywords?.length) state.draft.keywords = r.result.keywords.join(", ");
       noteModel(r);
     });
