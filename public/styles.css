@@ -355,3 +355,18 @@ body.locked { overflow: hidden; }
 .user-box { display: inline-flex; gap: 6px; align-items: center; }
 .user-chip b { font-weight: 600; }
 .login-card .error { color: var(--err); background: var(--err-tint); padding: 8px 10px; border-radius: 8px; }
+
+/* ---------- Standar minimum ---------- */
+.std-group { border-top: 1px solid var(--line); padding-top: 6px; }
+.std-group summary { cursor: pointer; padding: 4px 0; }
+.std-list { list-style: none; margin: 6px 0 4px; padding: 0; display: grid; gap: 6px; }
+.std-list li { display: flex; gap: 8px; align-items: flex-start; font-size: 15px; line-height: 1.45; }
+.std-ic { flex: none; width: 20px; text-align: center; font-weight: 700; color: var(--muted); }
+.std-list li.st-ok .std-ic { color: var(--ok); }
+.std-list li.st-warn .std-ic { color: var(--warn); }
+.std-list li.st-fail .std-ic { color: var(--err); }
+.tag.std-req { background: var(--human-tint, #fdeee3); color: var(--human); font-weight: 700; }
+.tag.std-opt { background: var(--ai-tint); color: var(--ai); }
+.std-src { margin: 0; font-size: 13px; }
+.ok-text { color: var(--ok); font-weight: 600; } .warn-text { color: var(--warn); font-weight: 600; }
+.std-review details { margin-top: 6px; }

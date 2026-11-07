@@ -2,6 +2,7 @@
 // Prinsip: judul milik peserta, tim penulis multidisiplin (1–6 penulis, 5 rumpun prodi), AI hanya membantu.
 // Referensi hanya dari OpenAlex; angka hasil tidak dikarang; kontribusi dan data dinyatakan terbuka.
 import { readUploads, saveFigs, loadFigs } from "./results-files.js";
+import { STANDARDS, PARTS, standardItems, COMMON_SOURCES } from "./standards.js";
 
 const PRODI = ["Computer Science", "Information Systems", "Digital Business", "Visual Communication Design", "International Trade"];
 // Nama lama (bahasa Indonesia) dari sesi tersimpan dipetakan ke nama bahasa Inggris.
@@ -1008,6 +1009,14 @@ function reviewCard() {
         <div class="alert ${v[1]}"><b>Rekomendasi: ${esc(v[0])}.</b> ${esc(R.summary)}</div>
         ${R.strengths.length ? `<div class="hint"><b>Kekuatan:</b> ${R.strengths.map(esc).join(" · ")}</div>` : ""}
         ${(R.checks || []).length ? `<div class="rv-checks"><b>Pemeriksaan konsistensi</b><ul>${R.checks.map((c) => `<li><span class="rv-st rv-${c.status}">${c.status === "ok" ? "✓" : c.status === "fail" ? "✗" : "!"}</span><span><b>${esc(CHECK_LABELS[c.id] || c.id)}</b>${c.note ? ` · ${esc(c.note)}` : ""}</span></li>`).join("")}</ul></div>` : ""}
+        ${R.standard?.length ? (() => {
+          const req = standardItems(R.profile).filter((x) => x.level === "wajib"); const st = new Map(R.standard.map((x) => [x.id, x]));
+          const metN = req.filter((x) => st.get(x.id)?.status === "met").length;
+          const gaps = standardItems(R.profile).filter((x) => st.get(x.id)?.status !== "met");
+          return `<div class="rv-checks std-review"><b>Standar minimum: ${esc(STANDARDS[R.profile].name)}</b> · <span class="${metN === req.length ? "ok-text" : "warn-text"}">${metN} dari ${req.length} butir wajib terpenuhi</span>${R.profile !== rsProfile() ? '<div class="alert warn">Jenis penelitian sudah diganti sejak review ini. Review ulang agar statusnya sesuai.</div>' : ""}
+            ${gaps.length ? `<details open><summary class="hint">Butir yang belum atau baru sebagian (${gaps.length})</summary>${standardList(gaps, st)}</details>` : ""}
+            <details><summary class="hint">Semua butir</summary>${standardList(standardItems(R.profile), st)}</details></div>`;
+        })() : ""}
         <div class="hint">${R.findings.filter((f) => f.severity === "major").length} major, ${R.findings.filter((f) => f.severity === "minor").length} minor · ${doneN} dari ${R.findings.length} ditandai sudah diperbaiki</div>
         <ul class="rv-list">${list}</ul>` : ""}
     </section>`;
@@ -1041,6 +1050,7 @@ function viewDraft() {
       ${guided("keywords", `<label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>`)}
     </section>
     ${methodCard()}
+    ${standardCard()}
     <section class="card ai">
       <h2>AI menyusun draf</h2>
       ${state.me.method.trim() ? `<p class="hint" style="margin:0">Pendekatan: <b>${esc(approachName(effectiveApproach()) || "belum dipilih")}</b>. Bagian Metode serta Hasil dan Pembahasan disusun dengan istilah dan kerangka pendekatan ini.</p>` : '<div class="alert warn">Rencana data dan metode belum diisi. Draf tetap bisa disusun, tetapi bagian Metode serta Hasil dan Pembahasan akan berupa kerangka umum.</div>'}
@@ -1147,13 +1157,55 @@ function rsCorpus() {
   const txt = I.texts.map((t) => `${t.name} ${String(t.text).slice(0, 1500)}`).join(" ").toLowerCase();
   return { tab, fig, all: `${(I.files || []).join(" ")} ${tab} ${fig} ${txt}`.toLowerCase(), nFig: I.figures.length, project: !!I.project, transcripts: I.texts.filter((t) => t.kind === "transcript" || String(t.text).length > 2000).length };
 }
+// ---------- Standar minimum per jenis penelitian ----------
+const ST_ICON = { met: ["✓", "Terpenuhi", "ok"], partial: ["◐", "Sebagian", "warn"], missing: ["○", "Belum", "fail"] };
+function profileSelect(label) {
+  return `<label class="field rs-prof"><span>${label}${state.results.profile ? "" : " (otomatis dari judul dan rencana metode)"}</span>
+    <select data-act="rs-profile"><option value="">Otomatis: ${esc(PROFILE_LIST.find(([k]) => k === autoProfile())[1])}</option>${PROFILE_LIST.map(([k, l]) => `<option value="${k}" ${state.results.profile === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+}
+// Status dari review terakhir (bila jenis penelitiannya sama).
+function reviewStatus() {
+  const R = state.review.data;
+  if (!R?.standard || R.profile !== rsProfile()) return null;
+  return new Map(R.standard.map((x) => [x.id, x]));
+}
+function standardList(items, status) {
+  return `<ul class="std-list">${items.map((it) => {
+    const s = status?.get(it.id); const ic = s ? ST_ICON[s.status] : null;
+    return `<li class="${ic ? `st-${ic[2]}` : ""}">
+      <span class="std-ic" title="${ic ? ic[1] : ""}">${ic ? ic[0] : "•"}</span>
+      <span><span class="tag ${it.level === "wajib" ? "std-req" : "std-opt"}">${it.level === "wajib" ? "Wajib" : "Dianjurkan"}</span> ${esc(it.text)}${s?.note ? `<span class="hint"> · ${esc(s.note)}</span>` : ""}</span></li>`;
+  }).join("")}</ul>`;
+}
+function standardCard() {
+  const p = rsProfile(); const S = STANDARDS[p]; const items = standardItems(p); const status = reviewStatus();
+  const req = items.filter((x) => x.level === "wajib");
+  const metN = status ? req.filter((x) => status.get(x.id)?.status === "met").length : 0;
+  const groups = ["M", "D", "H", "P"].map((k) => [k, items.filter((x) => x.part === k)]).filter(([, xs]) => xs.length);
+  return `
+    <section class="card" id="standardCard">
+      <h2>Standar minimum: ${esc(S.name)}</h2>
+      <p class="hint" style="margin:0">Butir yang biasanya ditanyakan reviewer IEEE untuk jenis penelitian ini. <b>Wajib</b> = sebaiknya ada di paper; <b>Dianjurkan</b> = memperkuat paper. Ini bukan aturan resmi IEEE (IEEE hanya meminta metode yang dapat direproduksi, hasil dengan tabel/gambar, dan pembahasan kontribusi); butirnya dirangkum dari standar pelaporan yang dipakai reviewer.</p>
+      ${profileSelect("Jenis penelitian")}
+      ${status ? `<div class="alert ${metN === req.length ? "ok" : "warn"}"><b>Hasil review terakhir: ${metN} dari ${req.length} butir wajib terpenuhi.</b> ◐ = sebagian atau masih placeholder, ○ = belum ada.</div>` : '<p class="hint" style="margin:0">Draf AI disusun agar memuat butir wajib ini (nilai yang belum ada ditulis sebagai [placeholder]). Status tiap butir diperiksa di Langkah 6, Review IEEE.</p>'}
+      ${groups.map(([k, xs]) => `<details class="std-group" ${k === "H" || status ? "open" : ""}><summary><b>${PARTS[k]}</b> <span class="hint">(${xs.filter((x) => x.level === "wajib").length} wajib${xs.some((x) => x.level !== "wajib") ? `, ${xs.filter((x) => x.level !== "wajib").length} dianjurkan` : ""})</span></summary>${standardList(xs, status)}</details>`).join("")}
+      <p class="hint std-src">Sumber: ${esc(S.sources)}; ${esc(COMMON_SOURCES)}.</p>
+    </section>`;
+}
+// Daftar isi ZIP = butir standar yang buktinya bisa dideteksi dari file.
+function zipTest(it, c) {
+  const [where, re] = it.zip;
+  if (where === "@transcripts") return c.transcripts > 0;
+  if (where === "@project") return c.project;
+  if (where === "@figures") return c.nFig > 0;
+  return new RegExp(re, "i").test(where === "tab" ? c.tab : where === "fig" ? c.fig : c.all);
+}
 function expectHtml() {
   const p = rsProfile(); const E = EXPECT[p]; const c = rsCorpus();
-  const items = E.items.map(([label, test]) => { const ok = c ? test(c) : null; return `<li class="${ok === null ? "" : ok ? "ok" : "miss"}">${ok === null ? "•" : ok ? "✓" : "○"} ${esc(label)}${ok === false ? ' <span class="hint">(belum terdeteksi)</span>' : ""}</li>`; }).join("");
+  const items = standardItems(p).filter((it) => it.zip).map((it) => { const ok = c ? zipTest(it, c) : null; return `<li class="${ok === null ? "" : ok ? "ok" : "miss"}">${ok === null ? "•" : ok ? "✓" : "○"} <span class="tag ${it.level === "wajib" ? "std-req" : "std-opt"}">${it.level === "wajib" ? "Wajib" : "Dianjurkan"}</span> ${esc(it.text)}${ok === false ? ' <span class="hint">(belum terdeteksi)</span>' : ""}</li>`; }).join("");
   return `<div class="rs-expect">
-    <label class="field rs-prof"><span>Jenis analisis${state.results.profile ? "" : " (otomatis dari judul dan rencana metode)"}</span>
-      <select data-act="rs-profile"><option value="">Otomatis: ${esc(PROFILE_LIST.find(([k]) => k === autoProfile())[1])}</option>${PROFILE_LIST.map(([k, l]) => `<option value="${k}" ${state.results.profile === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
-    <div class="hint"><b>Isi ZIP yang disarankan:</b></div>
+    ${profileSelect("Jenis analisis")}
+    <div class="hint"><b>Isi ZIP yang disarankan</b> (dari standar minimum; butir lain seperti etika dan keterbatasan ditulis di teks):</div>
     <ul class="rs-checklist">${items}</ul>
     <p class="hint" style="margin:0"><b>Cara ekspor:</b> ${E.how}</p>
   </div>`;
@@ -1539,7 +1591,7 @@ const actions = {
     // Teks dikirim dengan nomor sitasi IEEE final (urutan kemunculan), sama dengan .docx.
     const renum = (t) => String(t || "").replace(CITE_RE, (m, n) => { const k = order.indexOf(Number(n)); return k >= 0 ? `[${k + 1}]` : m; });
     const r = await api("/api/llm", {
-      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(),
+      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(), profile: rsProfile(),
       abstract: d.abstract, keywords: state.draft.keywords,
       sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs.map(renum) })),
       references: refs,
@@ -1596,7 +1648,7 @@ const actions = {
     if (state.draft.data && !window.confirm("Susun ulang draf? Suntingan pada draf saat ini akan tertimpa.")) return;
     runTask("make-draft", async () => {
       const r = await api("/api/llm", {
-        task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(),
+        task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(), profile: rsProfile(),
       });
       r.result.sections.forEach((x) => { x.orig = [...x.paragraphs]; });
       if (r.compact) toast("Jawaban pertama terlalu panjang, jadi draf disusun ulang otomatis dalam versi ringkas.");
