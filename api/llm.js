@@ -3,6 +3,7 @@ import { askJson } from "../lib/llm.js";
 import { keywordsPrompt, cleanKeywords, gapPrompt, cleanGap, titlesPrompt, cleanTitles, draftPrompt, cleanDraft, contribPrompt, cleanContrib, methodPrompt, cleanMethod, reviewPrompt, cleanReview } from "../lib/prompts.js";
 import { mockLlm } from "../lib/mock.js";
 import { resultsPrompt, cleanResults } from "../lib/results.js";
+import { blueprintPrompt, cleanBlueprint } from "../lib/blueprint.js";
 
 const TASKS = {
   keywords: { build: keywordsPrompt, clean: (j, b) => cleanKeywords(j, b), temperature: 0.3, maxTokens: 800 },
@@ -11,6 +12,7 @@ const TASKS = {
   review: { build: reviewPrompt, clean: (j, b) => cleanReview(j, b), temperature: 0.2, maxTokens: 6500 },
   method: { build: methodPrompt, clean: (j, b) => cleanMethod(j, b), temperature: 0.5, maxTokens: 1800 },
   contrib: { build: contribPrompt, clean: (j, b) => cleanContrib(j, b), temperature: 0.3, maxTokens: 1500 },
+  blueprint: { build: blueprintPrompt, clean: (j, b) => cleanBlueprint(j, b), temperature: 0.3, maxTokens: 6000 },
   results: { build: resultsPrompt, clean: (j, b) => cleanResults(j, b), temperature: 0.2, maxTokens: 8000 },
   draft: { build: draftPrompt, clean: (j, b) => cleanDraft(j, (b.papers || []).map((w) => Number(w.n)), b.lang), temperature: 0.4, maxTokens: 12000 },
 };
@@ -41,8 +43,8 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
     } catch (e) {
       // Draf panjang yang terpotong, rusak, atau terlalu lama: coba sekali lagi dengan versi ringkas.
-      if (!["draft", "review", "results"].includes(body.task) || !["truncated", "badjson", "timeout"].includes(e.code)) throw e;
-      if (body.task === "review" || body.task === "results") {
+      if (!["draft", "review", "results", "blueprint"].includes(body.task) || !["truncated", "badjson", "timeout"].includes(e.code)) throw e;
+      if (body.task === "review" || body.task === "results" || body.task === "blueprint") {
         // Review: cukup coba sekali lagi dengan ruang token lebih besar.
         const { json, model, label } = await askJson(system, user, { ...opts, maxTokens: body.task === "results" ? 12000 : 9000 });
         return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });

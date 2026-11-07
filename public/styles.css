@@ -370,3 +370,22 @@ body.locked { overflow: hidden; }
 .std-src { margin: 0; font-size: 13px; }
 .ok-text { color: var(--ok); font-weight: 600; } .warn-text { color: var(--warn); font-weight: 600; }
 .std-review details { margin-top: 6px; }
+
+/* ---------- Rencana Hasil ---------- */
+.bp-qs { display: grid; gap: 6px; }
+.bp-q { margin: 0; }
+.bp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.bp-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); display: grid; gap: 8px; }
+.bp-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bp-head .bp-del { margin-left: auto; }
+.bp-item .field { margin: 0; }
+.bp-shell { border-collapse: collapse; font-size: 13px; width: 100%; }
+.bp-shell th, .bp-shell td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.bp-shell th { background: var(--ai-tint); }
+.bp-shell td { color: var(--muted); }
+.bp-fig { border: 2px dashed var(--line); border-radius: 10px; padding: 22px 12px; text-align: center; color: var(--muted); font-size: 14px; }
+.bp-meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+.bp-meta dt { font-weight: 600; color: var(--muted); }
+.bp-meta dd { margin: 0; }
+.bp-disc { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+@media (max-width: 640px) { .bp-meta { grid-template-columns: 1fr; } }

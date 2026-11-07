@@ -68,7 +68,8 @@ const defaultState = () => ({
   },
   meta: { model: "", label: "" },
   review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
-  results: { items: null, sug: null, applied: null, dec: "", profile: "" }, // hasil analisis milik dosen (ZIP)
+  results: { items: null, sug: null, applied: null, dec: "", profile: "" },
+  blueprint: { data: null, basis: "" }, // Rencana Hasil // hasil analisis milik dosen (ZIP)
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -1050,6 +1051,7 @@ function viewDraft() {
       ${guided("keywords", `<label class="field"><span>Kata kunci (pisahkan dengan koma)</span><input data-bind="draft.keywords" value="${esc(state.draft.keywords)}"></label>`)}
     </section>
     ${methodCard()}
+    ${blueprintCard()}
     ${standardCard()}
     <section class="card ai">
       <h2>AI menyusun draf</h2>
@@ -1157,6 +1159,99 @@ function rsCorpus() {
   const txt = I.texts.map((t) => `${t.name} ${String(t.text).slice(0, 1500)}`).join(" ").toLowerCase();
   return { tab, fig, all: `${(I.files || []).join(" ")} ${tab} ${fig} ${txt}`.toLowerCase(), nFig: I.figures.length, project: !!I.project, transcripts: I.texts.filter((t) => t.kind === "transcript" || String(t.text).length > 2000).length };
 }
+// ---------- Rencana Hasil (results blueprint) ----------
+// AI merencanakan hasil yang harus dilaporkan untuk judul + gap + metode ini: kerangka tabel KOSONG,
+// analisis, kriteria, data yang perlu disiapkan. Dipakai untuk draf, ZIP hasil, dan review.
+const bpBasis = () => [state.me.title.trim(), state.gap.text.trim(), state.me.method.trim(), rsProfile()].join("|");
+function bpOrdered(bp) { return [...bp.items.filter((x) => x.placement === "method"), ...bp.items.filter((x) => x.placement !== "method")]; }
+function bpLabels(bp) {
+  const out = {}; let t = 1, f = 1;
+  for (const x of bpOrdered(bp)) out[x.id] = x.kind === "table" ? `${isId() ? "Tabel" : "Table"} ${ROMAN[t++]}` : `${isId() ? "Gambar" : "Fig."} ${f++}`;
+  return out;
+}
+const bpForApi = () => { const d = state.blueprint.data; return d ? { questions: d.questions, items: d.items.map(({ flag, ...x }) => x), discussion: d.discussion } : null; };
+function bpUncovered(bp) {
+  const covered = new Set(bp.items.flatMap((x) => x.standard));
+  return standardItems(bp.profile).filter((x) => x.part === "H" && x.level === "wajib" && !covered.has(x.id));
+}
+function bpShell(x) {
+  if (x.kind === "figure") return `<div class="bp-fig">${esc(x.caption)}</div>`;
+  const cols = x.columns.length ? x.columns : ["…"];
+  const rows = x.rows.length ? x.rows : ["", "", ""];
+  return `<div class="mini-wrap"><table class="bp-shell"><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${rows.map((r) => `<tr>${cols.map((_, k) => `<td>${k === 0 && r ? esc(r) : "…"}</td>`).join("")}</tr>`).join("")}</table></div>`;
+}
+function blueprintCard() {
+  const B = state.blueprint; const bp = B.data;
+  const canMake = state.me.title.trim() && state.gap.text.trim();
+  const stale = bp && B.basis !== bpBasis();
+  let body = "";
+  if (bp) {
+    const lab = bpLabels(bp); const stdMap = new Map(standardItems(bp.profile).map((x) => [x.id, x]));
+    const unc = bpUncovered(bp);
+    body = `
+      ${stale ? '<div class="alert warn"><b>Judul, gap, metode, atau jenis penelitian berubah setelah rencana ini dibuat.</b> Susun ulang rencana agar sesuai.</div>' : ""}
+      <h3>${bp.questions.some((q) => q.id.startsWith("H")) ? "Hipotesis" : "Pertanyaan penelitian"}</h3>
+      <div class="bp-qs">${bp.questions.map((q, i) => `<label class="field bp-q"><span>${esc(q.id)}</span><input data-act="bp-q" data-i="${i}" value="${esc(q.text)}"></label>`).join("")}</div>
+      <h3>Tabel dan gambar yang harus dilaporkan (${bp.items.length})</h3>
+      <p class="hint" style="margin:0">Tabel sengaja kosong: isinya berasal dari analisis Anda. Caption boleh disunting; butir yang tidak perlu bisa dihapus.</p>
+      ${unc.length ? `<div class="alert warn"><b>Butir wajib Hasil yang belum tercakup rencana:</b><ul>${unc.map((x) => `<li>${esc(x.text)}</li>`).join("")}</ul></div>` : '<div class="alert ok">✓ Semua butir wajib Hasil pada standar minimum tercakup oleh rencana ini.</div>'}
+      <ol class="bp-list">${bpOrdered(bp).map((x) => `
+        <li class="bp-item">
+          <div class="bp-head"><b>${esc(lab[x.id])}</b>
+            ${x.question !== "-" ? `<span class="tag std-req">${esc(x.question)}</span>` : '<span class="tag std-opt">Deskriptif</span>'}
+            ${x.placement === "method" ? '<span class="tag">di Metode</span>' : ""}
+            <button type="button" class="btn ghost small bp-del" data-act="bp-del" data-id="${x.id}" aria-label="Hapus ${esc(lab[x.id])}">Hapus</button></div>
+          <label class="field"><span>Caption</span><input data-act="bp-cap" data-id="${x.id}" value="${esc(x.caption)}"></label>
+          ${bpShell(x)}
+          <dl class="bp-meta">
+            <dt>Analisis</dt><dd>${esc(x.analysis)}</dd>
+            ${x.measures ? `<dt>Yang dilaporkan</dt><dd>${esc(x.measures)}</dd>` : ""}
+            ${x.criteria ? `<dt>Kriteria</dt><dd>${esc(x.criteria)}</dd>` : ""}
+            <dt>Siapkan</dt><dd>${esc(x.data)}</dd>
+            ${x.standard.length ? `<dt>Standar</dt><dd>${x.standard.map((s) => `<span class="tag" title="${esc(stdMap.get(s)?.text || "")}">${esc(s)}</span>`).join(" ")}</dd>` : ""}
+          </dl>
+          ${x.flag ? `<div class="alert err">${esc(x.flag)}</div>` : ""}
+        </li>`).join("")}</ol>
+      ${bp.discussion.length ? `<h3>Rencana pembahasan</h3><ul class="bp-disc">${bp.discussion.map((d) => `<li><b>${esc(d.question)}</b>: ${esc(d.aspect)}${d.refs.length ? `<div class="hint">Bandingkan dengan: ${d.refs.map((n) => { const w = state.lit.selected.find((x) => x.n === n); return w ? `${esc(String(w.title).slice(0, 80))}${String(w.title).length > 80 ? "…" : ""} (${esc(w.year || "n.d.")})` : ""; }).filter(Boolean).join("; ")}</div>` : ""}</li>`).join("")}</ul>` : ""}
+      ${bp.notes.length ? `<div class="alert info"><b>Keputusan yang masih perlu Anda ambil:</b><ul>${bp.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+      <div class="row-btns"><button type="button" class="btn ghost" data-act="bp-copy">Salin rencana</button><button type="button" class="btn ghost" data-act="bp-download">Unduh rencana analisis (.html, bisa dibuka di Word)</button></div>
+      ${state.draft.data ? '<p class="hint" style="margin:0">Draf di bawah disusun mengikuti rencana yang ada saat draf dibuat. Bila rencana diubah, susun ulang draf.</p>' : '<p class="hint" style="margin:0">Draf akan memakai rencana ini: hipotesis/pertanyaan, label, dan caption tabel yang sama.</p>'}`;
+  }
+  return `
+    <section class="card ai" id="blueprintCard">
+      <h2>Rencana Hasil</h2>
+      <p class="hint" style="margin:0">Dari judul, gap, dan metode yang dipilih, AI merencanakan hasil apa yang harus dilaporkan sesuai standar minimum: pertanyaan penelitian atau hipotesis, kerangka tabel dan gambar, analisis, kriteria keputusan, dan data yang perlu Anda siapkan. <b>AI hanya merencanakan struktur, tidak menebak hasil.</b></p>
+      ${!state.me.method.trim() ? '<div class="alert warn">Rencana data dan metode belum dipilih. Rencana tetap bisa disusun, tetapi AI harus menebak desainnya.</div>' : ""}
+      <div>${btn("bp-make", bp ? "Susun ulang rencana hasil" : "AI: susun rencana hasil", { disabled: !canMake, busyLabel: "Menyusun rencana… (15–40 detik)" })}</div>
+      ${!canMake ? '<div class="alert warn">Isi judul dan pilih gap terlebih dahulu.</div>' : ""}
+      ${errBox("bp-make")}
+      ${promptViewer("blueprint")}
+      ${body}
+    </section>`;
+}
+function bpPlainText() {
+  const bp = state.blueprint.data; if (!bp) return "";
+  const lab = bpLabels(bp);
+  return [`RENCANA HASIL: ${state.me.title}`, "", ...bp.questions.map((q) => `${q.id}. ${q.text}`), "",
+    ...bpOrdered(bp).map((x) => [`${lab[x.id]}. ${x.caption}${x.question !== "-" ? ` (${x.question})` : ""}`, x.kind === "table" ? `  Kolom: ${x.columns.join(" | ")}${x.rows.length ? `\n  Baris: ${x.rows.join(", ")}` : ""}` : "", `  Analisis: ${x.analysis}`, x.criteria ? `  Kriteria: ${x.criteria}` : "", `  Siapkan: ${x.data}`].filter(Boolean).join("\n")),
+    "", "Rencana pembahasan:", ...bp.discussion.map((d) => `- ${d.question}: ${d.aspect}`)].join("\n");
+}
+function bpHtmlDoc() {
+  const bp = state.blueprint.data; const lab = bpLabels(bp); const S = STANDARDS[bp.profile];
+  const shell = (x) => x.kind === "figure" ? `<p style="border:1px dashed #888;padding:24px;text-align:center">[${esc(lab[x.id])}: ${esc(x.caption)}]</p>` :
+    `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;font-size:10pt"><tr>${x.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${(x.rows.length ? x.rows : ["", "", ""]).map((r) => `<tr>${x.columns.map((_, k) => `<td>${k === 0 && r ? esc(r) : "&nbsp;"}</td>`).join("")}</tr>`).join("")}</table>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Rencana Hasil</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:11pt;max-width:800px">
+<h1 style="font-size:16pt">Rencana Hasil (rencana analisis)</h1>
+<p><b>Judul:</b> ${esc(state.me.title)}<br><b>Jenis penelitian:</b> ${esc(S.name)}<br><b>Disusun dengan:</b> Research Lab, ${new Date().toLocaleDateString("id-ID")}. Rencana struktur saja; tabel sengaja kosong dan diisi dari analisis tim.</p>
+<h2 style="font-size:13pt">${bp.questions.some((q) => q.id.startsWith("H")) ? "Hipotesis" : "Pertanyaan penelitian"}</h2><ul>${bp.questions.map((q) => `<li><b>${esc(q.id)}</b>: ${esc(q.text)}</li>`).join("")}</ul>
+<h2 style="font-size:13pt">Tabel dan gambar</h2>
+${bpOrdered(bp).map((x) => `<h3 style="font-size:11pt">${esc(lab[x.id])}. ${esc(x.caption)}${x.question !== "-" ? ` (${esc(x.question)})` : ""}</h3>${shell(x)}
+<p><b>Analisis:</b> ${esc(x.analysis)}${x.measures ? `<br><b>Yang dilaporkan:</b> ${esc(x.measures)}` : ""}${x.criteria ? `<br><b>Kriteria:</b> ${esc(x.criteria)}` : ""}<br><b>Siapkan:</b> ${esc(x.data)}</p>`).join("")}
+<h2 style="font-size:13pt">Rencana pembahasan</h2><ul>${bp.discussion.map((d) => `<li><b>${esc(d.question)}</b>: ${esc(d.aspect)}</li>`).join("")}</ul>
+${bp.notes.length ? `<h2 style="font-size:13pt">Keputusan yang masih perlu diambil</h2><ul>${bp.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+<p style="font-size:9pt;color:#555">Standar minimum: ${esc(S.sources)}. Bukan aturan resmi IEEE.</p></body></html>`;
+}
+
 // ---------- Standar minimum per jenis penelitian ----------
 const ST_ICON = { met: ["✓", "Terpenuhi", "ok"], partial: ["◐", "Sebagian", "warn"], missing: ["○", "Belum", "fail"] };
 function profileSelect(label) {
@@ -1591,7 +1686,7 @@ const actions = {
     // Teks dikirim dengan nomor sitasi IEEE final (urutan kemunculan), sama dengan .docx.
     const renum = (t) => String(t || "").replace(CITE_RE, (m, n) => { const k = order.indexOf(Number(n)); return k >= 0 ? `[${k + 1}]` : m; });
     const r = await api("/api/llm", {
-      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(), profile: rsProfile(),
+      task: "review", title: state.me.title, lang: state.me.lang, approach: effectiveApproach(), profile: rsProfile(), blueprint: bpForApi(),
       abstract: d.abstract, keywords: state.draft.keywords,
       sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs.map(renum) })),
       references: refs,
@@ -1609,6 +1704,27 @@ const actions = {
     state.draft.keywords = list.join(", "); save(); render();
   },
   "use-keywords": () => { state.draft.keywords = state.draft.keywordSugs.join(", "); save(); render(); },
+  "bp-make": () => runTask("bp-make", async () => {
+    const r = await api("/api/llm", {
+      task: "blueprint", title: state.me.title, aim: state.me.aim, gap: state.gap.text, lang: state.me.lang, approach: effectiveApproach(),
+      profile: rsProfile(), method: state.me.method, dataAvail: state.me.dataAvail, papers: paperPayload(false),
+    });
+    state.blueprint = { data: r.result, basis: bpBasis() }; noteModel(r);
+    toast("Rencana hasil tersusun. Periksa dan sunting sebelum menyusun draf.", { ok: true });
+  }),
+  "bp-del": (el) => {
+    const bp = state.blueprint.data; if (!bp) return;
+    bp.items = bp.items.filter((x) => x.id !== el.dataset.id); save(); render();
+  },
+  "bp-copy": async () => {
+    try { await navigator.clipboard.writeText(bpPlainText()); toast("Rencana disalin."); } catch { toast("Gagal menyalin otomatis."); }
+  },
+  "bp-download": () => {
+    if (!state.blueprint.data) return;
+    const blob = new Blob([bpHtmlDoc()], { type: "text/html" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "Rencana-Hasil.html"; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  },
   "results-suggest": () => runTask("results-suggest", async () => {
     const d = state.draft.data; const I = state.results.items; if (!d || !I) return;
     const r = await api("/api/llm", {
@@ -1616,7 +1732,7 @@ const actions = {
       abstract: d.abstract, sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs })), papers: paperPayload(false),
       tables: I.tables.map((t) => ({ id: t.id, name: t.name, source: t.source, headers: t.headers, rows: t.rows.slice(0, 40) })),
       texts: I.texts, figures: I.figures.map(({ id, name, w, h, context }) => ({ id, name, w, h, context })), raw: I.raw,
-      profile: rsProfile(), project: I.project || null,
+      profile: rsProfile(), project: I.project || null, blueprint: bpForApi(),
     });
     state.results.sug = r.result; noteModel(r);
     if (r.compact) toast("Jawaban pertama terpotong, jadi AI diminta ulang dengan ruang lebih besar.");
@@ -1648,7 +1764,7 @@ const actions = {
     if (state.draft.data && !window.confirm("Susun ulang draf? Suntingan pada draf saat ini akan tertimpa.")) return;
     runTask("make-draft", async () => {
       const r = await api("/api/llm", {
-        task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(), profile: rsProfile(),
+        task: "draft", ...ctx(), gap: state.gap.text, lang: state.me.lang, papers: paperPayload(true), matrix: state.gap.matrix, method: state.me.method, approach: effectiveApproach(), profile: rsProfile(), blueprint: bpForApi(),
       });
       r.result.sections.forEach((x) => { x.orig = [...x.paragraphs]; });
       if (r.compact) toast("Jawaban pertama terlalu panjang, jadi draf disusun ulang otomatis dalam versi ringkas.");
@@ -1723,7 +1839,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["rs-profile", "results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["bp-q", "bp-cap", "rs-profile", "results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -1840,6 +1956,8 @@ document.addEventListener("input", (e) => {
   }
   const act = el.dataset?.act;
   if (act === "rs-cap") { const x = rsSugOf(el.dataset.id); if (x) x.caption = el.value; save(); return; }
+  if (act === "bp-q") { const q = state.blueprint.data?.questions[Number(el.dataset.i)]; if (q) q.text = el.value; save(); return; }
+  if (act === "bp-cap") { const x = state.blueprint.data?.items.find((i) => i.id === el.dataset.id); if (x) x.caption = el.value; save(); return; }
   if (act === "aspect") { state.gap.matrix.aspects[Number(el.dataset.i)] = el.value; save(); return; }
   if (act === "edit-abstract") { state.draft.data.abstract = el.value; save(); updateStats(); updateGuide("abstract"); updateSmap("abstract"); return; }
   if (act === "edit-section") {
