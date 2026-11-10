@@ -97,6 +97,11 @@ fi
 say "3/7 Database dan rahasia"
 # Akses root MariaDB: soket unix, atau password root yang disimpan CyberPanel
 sqlq() { printf '%s' "$1" | sed -e "s/\\\\/\\\\\\\\/g" -e "s/'/\\\\'/g"; }
+# Tes koneksi lewat PHP mysqli, sama seperti aplikasi (tidak terpengaruh /root/.my.cnf milik CyberPanel)
+dbtest() {
+  DBP="$DBPASS" $PHPBIN -r 'mysqli_report(MYSQLI_REPORT_OFF); $m = @new mysqli($argv[1], $argv[2], getenv("DBP"), $argv[3]);
+    if ($m->connect_errno) { fwrite(STDERR, $m->connect_error . "\n"); exit(1); }' "$1" "$DBUSER" "$DBNAME"
+}
 rootsql() {
   if mysql -u root -e "SELECT 1" >/dev/null 2>&1; then mysql -u root "$@"; return; fi
   local f=/etc/cyberpanel/mysqlPassword pw=""
@@ -123,7 +128,7 @@ if [ ! -f "$CI/.env" ]; then
     read -rsp "  Password        : " DBPASS; echo
     DBNAME=$(printf '%s' "$DBNAME" | tr -d '[:space:]'); DBUSER=$(printf '%s' "$DBUSER" | tr -d '[:space:]')
     for h in localhost 127.0.0.1; do
-      if ERR=$(MYSQL_PWD="$DBPASS" mysql -h "$h" -u "$DBUSER" "$DBNAME" -e "SELECT 1" 2>&1 >/dev/null); then DBHOST=$h; break; fi
+      if ERR=$(dbtest "$h" 2>&1 >/dev/null); then DBHOST=$h; break; fi
       echo "  [$h] $ERR"
     done
     [ -n "$DBHOST" ] && { echo "  Terhubung ke database $DBNAME lewat $DBHOST."; break; }
@@ -137,7 +142,7 @@ if [ ! -f "$CI/.env" ]; then
                     ALTER USER '$(sqlq "$DBUSER")'@'localhost' IDENTIFIED BY '$(sqlq "$DBPASS")';
                     GRANT ALL PRIVILEGES ON \`$(sqlq "$DBNAME")\`.* TO '$(sqlq "$DBUSER")'@'localhost';
                     FLUSH PRIVILEGES;" && echo "  Password disetel ulang."
-        if ERR=$(MYSQL_PWD="$DBPASS" mysql -h localhost -u "$DBUSER" "$DBNAME" -e "SELECT 1" 2>&1 >/dev/null); then
+        if ERR=$(dbtest localhost 2>&1 >/dev/null); then
           DBHOST=localhost; echo "  Terhubung ke database $DBNAME."; break
         fi
         echo "  Masih gagal: $ERR"
@@ -241,7 +246,7 @@ cat > /etc/cron.daily/research-lab-backup <<'BK'
 # Cadangan harian database Research Lab (disimpan 14 hari)
 set -euo pipefail
 DIR=/var/backups/research-lab; mkdir -p "$DIR"; chmod 700 "$DIR"
-mysqldump --defaults-extra-file=/etc/research-lab/mysql-backup.cnf --single-transaction "$(cat /etc/research-lab/dbname)" | gzip > "$DIR/research_lab-$(date +%Y%m%d-%H%M).sql.gz"
+HOME=/nonexistent mysqldump --defaults-extra-file=/etc/research-lab/mysql-backup.cnf --single-transaction "$(cat /etc/research-lab/dbname)" | gzip > "$DIR/research_lab-$(date +%Y%m%d-%H%M).sql.gz"
 find "$DIR" -name 'research_lab-*.sql.gz' -mtime +14 -delete
 BK
 chmod 755 /etc/cron.daily/research-lab-backup
