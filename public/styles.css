@@ -400,3 +400,25 @@ body.locked { overflow: hidden; }
 .sync-diff { font-family: var(--f-serif, Georgia, serif); font-size: 15px; line-height: 1.6; max-height: 420px; overflow: auto; padding: 8px 10px; background: var(--bg); border-radius: 8px; }
 .sync-diff del, summary del { background: var(--err-tint); color: var(--err); text-decoration: line-through; }
 .sync-diff ins, summary ins { background: var(--ok-tint); color: var(--ok); text-decoration: none; }
+
+/* ---------- Fase A/B ---------- */
+.phase-h { display: grid; gap: 1px; padding: 10px 10px 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.phase-h b { color: var(--ink); font-size: 12.5px; }
+.phase-h span { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.phase-h:not(:first-child) { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+@media (max-width: 900px) { .phase-h { display: none; } }
+.exec-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.exec-list li { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.exec-list li.done { border-color: var(--ok); }
+.exec-row { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.45; cursor: pointer; }
+.exec-row input { margin-top: 4px; }
+.exec-note { margin-left: 26px; }
+.exec-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.exec-log li { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.log-add { align-items: flex-end; }
+.lr-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.lr-item { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.lr-item .t { font-weight: 600; }
+.lr-item .s { font-size: 13.5px; color: var(--muted); }
+.lr-finding { margin-top: 10px; }
+.phase-next { margin-top: 0; }

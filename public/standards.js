@@ -127,3 +127,39 @@ export function standardPromptText(profile, parts = "MDHP") {
   return `MINIMUM REPORTING STANDARD for ${S.name} (compiled from ${S.sources}; not an official IEEE rule):\n` +
     ["M", "D", "H", "P"].filter((p) => parts.includes(p)).map((p) => `${{ M: "Method", D: "Data", H: "Results", P: "Discussion" }[p]}:\n${by(p)}`).filter((t) => !t.endsWith(":\n")).join("\n");
 }
+
+// Checklist pelaksanaan (Fase B) per jenis penelitian. req = wajib dicentang sebelum langkah dianggap selesai.
+const EXEC_COMMON = [
+  { id: "E1", req: true, text: "Rencana Hasil dikunci sebelum data dikumpulkan atau dianalisis.", auto: "locked" },
+  { id: "E2", req: true, text: "Izin etik dan persetujuan partisipan diperoleh (bila melibatkan manusia).", note: "Nomor/tanggal izin bila ada; tulis \"tidak melibatkan manusia\" bila tidak relevan" },
+  { id: "E3", req: true, text: "Data disimpan aman dan dianonimkan sebelum dianalisis.", note: "Lokasi penyimpanan, cara anonimisasi" },
+  { id: "E4", req: true, text: "Setiap penyimpangan dari rencana dicatat saat terjadi (lihat log di bawah)." },
+];
+const EXEC_BY = {
+  sem: [
+    { id: "ES1", req: true, text: "Instrumen diuji coba (pilot) dan diperbaiki sebelum disebar.", note: "Jumlah responden pilot, butir yang diperbaiki" },
+    { id: "ES2", req: true, text: "Jumlah responden minimum sesuai rencana tercapai.", note: "Target vs terkumpul" },
+    { id: "ES3", req: false, text: "Aturan pembersihan data (respons tidak lengkap/tidak serius) ditetapkan sebelum melihat hasil." },
+  ],
+  qual: [
+    { id: "EQ1", req: true, text: "Panduan wawancara/FGD diuji coba dan diperbaiki." },
+    { id: "EQ2", req: true, text: "Rekaman ditranskrip dan dianonimkan (kode informan, tanpa nama asli)." },
+    { id: "EQ3", req: true, text: "Member checking atau triangulasi dilakukan.", note: "Cara dan waktu pelaksanaan" },
+    { id: "EQ4", req: false, text: "Titik saturasi data dicatat." },
+  ],
+  ml: [
+    { id: "EM1", req: true, text: "Dataset dibekukan dan diberi versi (tanggal unduh, jumlah data, hash/versi).", note: "Versi atau tanggal dataset" },
+    { id: "EM2", req: true, text: "Split dan seed ditetapkan sebelum pelatihan; data uji tidak dipakai saat tuning." },
+    { id: "EM3", req: true, text: "Baseline dijalankan dengan pengaturan dan data yang setara." },
+    { id: "EM4", req: false, text: "Beberapa run/seed dijalankan untuk melihat variasi." },
+  ],
+  dsr: [
+    { id: "ED1", req: true, text: "Kebutuhan divalidasi dengan calon pengguna.", note: "Siapa dan bagaimana" },
+    { id: "ED2", req: true, text: "Skenario uji (test case) ditulis sebelum pengujian dijalankan." },
+    { id: "ED3", req: true, text: "Versi aplikasi yang diuji dicatat (commit, tag, atau nomor versi).", note: "Versi/commit" },
+    { id: "ED4", req: true, text: "Responden evaluasi (SUS/UAT) direkrut sesuai rencana.", note: "Target vs terkumpul" },
+  ],
+};
+EXEC_BY.stats = EXEC_BY.sem;
+EXEC_BY.mixed = [...EXEC_BY.sem.slice(0, 2), ...EXEC_BY.qual.slice(1, 3)];
+export function execChecks(profile) { return [...EXEC_COMMON, ...(EXEC_BY[standardKey(profile)] || [])]; }

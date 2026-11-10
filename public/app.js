@@ -2,7 +2,7 @@
 // Prinsip: judul milik peserta, tim penulis multidisiplin (1–6 penulis, 5 rumpun prodi), AI hanya membantu.
 // Referensi hanya dari OpenAlex; angka hasil tidak dikarang; kontribusi dan data dinyatakan terbuka.
 import { readUploads, saveFigs, loadFigs } from "./results-files.js";
-import { STANDARDS, PARTS, standardItems, COMMON_SOURCES } from "./standards.js";
+import { STANDARDS, PARTS, standardItems, COMMON_SOURCES, execChecks } from "./standards.js";
 
 const PRODI = ["Computer Science", "Information Systems", "Digital Business", "Visual Communication Design", "International Trade"];
 // Nama lama (bahasa Indonesia) dari sesi tersimpan dipetakan ke nama bahasa Inggris.
@@ -12,12 +12,14 @@ const fixProdi = (p) => PRODI_OLD[p] || p;
 const CELL_OLD = { Ya: "Yes", Sebagian: "Partial", Belum: "No" };
 const MAX_AUTHORS = 6;
 const STEPS = [
-  { title: "Peserta dan judul", sub: "Judul, tim penulis" },
-  { title: "Literatur", sub: "Lintas prodi, OpenAlex" },
-  { title: "Matriks gap", sub: "Temukan celah riset" },
-  { title: "Judul dan draf", sub: "Saran judul, draf paper" },
-  { title: "Integritas dan ekspor", sub: "Kontribusi, data, .docx" },
-  { title: "Review IEEE", sub: "Reviewer, perbaikan" },
+  { title: "Peserta dan judul", sub: "Judul, tim penulis", phase: "A" },
+  { title: "Literatur", sub: "Lintas prodi, OpenAlex", phase: "A" },
+  { title: "Matriks gap", sub: "Temukan celah riset", phase: "A" },
+  { title: "Judul, metode, rencana", sub: "Rencana hasil, draf kerangka", phase: "A" },
+  { title: "Pelaksanaan", sub: "Etik, uji coba, log data", phase: "B" },
+  { title: "Hasil dan sinkronisasi", sub: "Unggah hasil, literatur", phase: "B" },
+  { title: "Integritas dan ekspor", sub: "Kontribusi, data, .docx", phase: "B" },
+  { title: "Review IEEE", sub: "Reviewer, perbaikan", phase: "B" },
 ];
 const MAX_PAPERS = 30;
 const MIN_PAPERS = 15; // paper conference IEEE umumnya 15–30 referensi
@@ -57,6 +59,7 @@ const oneLine = (t) => String(t || "").replace(/\s*\n\s*/g, " ");
 const blankAuthor = () => ({ name: "", deptKey: "", prodi: "", dept: "", faculty: "", org: "", city: "", email: "" });
 const defaultState = () => ({
   step: 0,
+  stepsV: 2, // versi susunan langkah (2 = delapan langkah, Fase A/B)
   me: { lang: "en", title: "", aim: "", method: "", approach: "", dataAvail: "", consent: false, authors: [blankAuthor()] },
   lit: { novelty: "", query: "", lens: "", yearFrom: 2016, sort: "relevance", results: [], total: 0, searched: false, selected: [], suggestions: [], perProdi: [], concepts: [] },
   gap: { matrix: null, gaps: [], chosen: -1, text: "" },
@@ -70,7 +73,9 @@ const defaultState = () => ({
   review: { data: null, done: [] }, // hasil "Review sebagai reviewer IEEE"
   results: { items: null, sug: null, applied: null, dec: "", profile: "" },
   blueprint: { data: null, basis: "", locked: null }, // Rencana Hasil; locked = {at, hash, snapshot}
-  sync: { data: null, backup: {}, applied: {} }, // usulan sinkronisasi paper dengan hasil // hasil analisis milik dosen (ZIP)
+  sync: { data: null, backup: {}, applied: {} }, // usulan sinkronisasi paper dengan hasil
+  exec: { checks: {}, notes: {}, facts: { start: "", end: "", n: "", where: "" }, log: [] }, // Fase B: pelaksanaan
+  litr: { recent: [], recentDone: false, findings: [], added: [] }, // pembaruan literatur // hasil analisis milik dosen (ZIP)
   prompts: {}, // prompt terakhir per tugas AI, untuk tombol "Lihat prompt AI"
 });
 
@@ -84,7 +89,11 @@ function load() {
   try {
     const raw = localStorage.getItem(scoped(STORE_KEY));
     if (raw) {
-      const s = deepMerge(defaultState(), JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const s = deepMerge(defaultState(), parsed);
+      if (parsed.stepsV !== 2 && s.step >= 4) s.step += 2; // susunan 6 langkah lama -> 8 langkah dua fase
+      s.stepsV = 2;
+      s.step = Math.max(0, Math.min(STEPS.length - 1, Number(s.step) || 0));
       s.me.authors = (s.me.authors.length ? s.me.authors : [blankAuthor()]).slice(0, MAX_AUTHORS).map((a) => ({ ...blankAuthor(), ...a }));
       s.me.authors.forEach((a) => {
         a.prodi = fixProdi(a.prodi);
@@ -334,13 +343,21 @@ function stepDone(i) {
     case 1: return state.lit.selected.length >= MIN_PAPERS && litProdi().filter((p) => teamProdi().includes(p)).length >= needLitProdi();
     case 2: return Boolean(state.gap.text.trim());
     case 3: return Boolean(state.draft.data);
-    case 4: return Boolean(state.draft.data) && MANUAL_CHECKS.every(([k]) => state.exp.checks[k]) && Boolean(state.exp.od.type);
+    case 4: return Boolean(state.draft.data) && execItems().filter((it) => it.req).every(execChecked);
+    case 5: return Boolean(state.results.applied);
+    case 6: return Boolean(state.draft.data) && MANUAL_CHECKS.every(([k]) => state.exp.checks[k]) && Boolean(state.exp.od.type);
     default: return false;
   }
 }
-// Langkah berurutan: langkah i hanya bisa dibuka bila semua langkah sebelumnya selesai.
+// Syarat membuka langkah berikutnya. Fase B tidak saling mengunci: draf kerangka boleh langsung diekspor
+// (mis. untuk latihan), sedangkan Pelaksanaan dan Hasil boleh dikerjakan kapan saja setelah draf ada.
+function stepPassable(i) {
+  if (i === 4 || i === 5) return Boolean(state.draft.data);
+  return stepDone(i);
+}
+// Langkah berurutan: langkah i hanya bisa dibuka bila semua langkah sebelumnya bisa dilewati.
 function firstOpenStep() {
-  for (let k = 0; k < STEPS.length - 1; k++) if (!stepDone(k)) return k;
+  for (let k = 0; k < STEPS.length - 1; k++) if (!stepPassable(k)) return k;
   return STEPS.length - 1;
 }
 const stepUnlocked = (i) => i <= firstOpenStep();
@@ -361,13 +378,14 @@ function goto(i) {
 function render() {
   $("#stepper").innerHTML = STEPS.map((s, i) => {
     const locked = !stepUnlocked(i);
-    return `
+    const ph = i === 0 || STEPS[i - 1].phase !== s.phase ? `<div class="phase-h"><b>${PHASE[s.phase][0]}</b><span>${PHASE[s.phase][1]}</span></div>` : "";
+    return `${ph}
     <button type="button" class="step-link ${stepDone(i) ? "done" : ""} ${locked ? "locked" : ""}" data-act="goto" data-i="${i}" ${state.step === i ? 'aria-current="step"' : ""} ${locked ? `disabled aria-disabled="true" title="Selesaikan langkah ${firstOpenStep() + 1} terlebih dahulu"` : ""}>
       <span class="step-num">${stepDone(i) ? "✓" : i + 1}</span>
       <span class="step-text"><span class="step-title">${s.title}</span><br><span class="step-sub">${s.sub}</span></span>
     </button>`;
   }).join("");
-  const views = [viewMe, viewLiterature, viewGap, viewDraft, viewExport, viewReview];
+  const views = [viewMe, viewLiterature, viewGap, viewDraft, viewExec, viewResults, viewExport, viewReview];
   $("#main").innerHTML = views[state.step]();
 }
 function header(i, title, lede) {
@@ -379,7 +397,7 @@ function btn(act, label, { kind = "ai", disabled = false, busyLabel = "AI sedang
   return `<button type="button" class="btn ${kind}" data-act="${act}" ${disabled || b ? "disabled" : ""}>${b ? `<span class="spin" aria-hidden="true"></span>${busyLabel}` : label}</button>`;
 }
 function navRow(nextLabel = "Lanjut") {
-  const nextOk = stepDone(state.step);
+  const nextOk = stepPassable(state.step);
   return `<div class="nav-row">
     ${state.step > 0 ? `<button type="button" class="btn ghost" data-act="goto" data-i="${state.step - 1}">← Kembali</button>` : "<span></span>"}
     ${state.step < STEPS.length - 1 ? `<button type="button" class="btn primary" data-act="goto" data-i="${state.step + 1}" ${nextOk ? "" : "disabled"}>${nextLabel} →</button>` : ""}
@@ -967,7 +985,7 @@ function wordTable() {
 }
 function viewReview() {
   return `
-    ${header(5, "Review sebagai reviewer IEEE", "AI mereview paper lengkap Anda seperti reviewer konferensi IEEE. Perbaiki temuan di Langkah 4 (draf) atau Langkah 5 (pernyataan), review ulang, lalu unduh ulang .docx.")}
+    ${header(7, "Review sebagai reviewer IEEE", "AI mereview paper lengkap Anda seperti reviewer konferensi IEEE. Perbaiki temuan di Langkah 4 (draf kerangka) atau Langkah 6 (setelah hasil), atau Langkah 7 (pernyataan), review ulang, lalu unduh ulang .docx.")}
     <section class="card">
       <h2>Panjang setiap bagian</h2>
       <p class="hint" style="margin:0">Abstrak 150–250 kata mengikuti panduan IEEE. Rentang bagian lain adalah rekomendasi editorial untuk paper konferensi, bukan kuota wajib; ikuti batas halaman venue tujuan.</p>
@@ -977,8 +995,8 @@ function viewReview() {
     <section class="card human">
       <h2>Tindak lanjut tim</h2>
       <div class="row">
-        <button type="button" class="btn ghost" data-act="goto" data-i="3">Perbaiki draf (Langkah 4)</button>
-        <button type="button" class="btn ghost" data-act="goto" data-i="4">Perbaiki pernyataan dan unduh ulang (Langkah 5)</button>
+        <button type="button" class="btn ghost" data-act="goto" data-i="${state.results.applied ? 5 : 3}">Perbaiki draf (Langkah ${state.results.applied ? 6 : 4})</button>
+        <button type="button" class="btn ghost" data-act="goto" data-i="6">Perbaiki pernyataan dan unduh ulang (Langkah 7)</button>
       </div>
     </section>
     ${navRow()}`;
@@ -1036,15 +1054,19 @@ function promptViewer(task) {
   </details>`;
 }
 
-function viewDraft() {
+function draftEditor() {
   const d = state.draft.data;
-  const editor = d ? `
+  return d ? `
     ${guided("abstract", `<label class="field"><span>${isId() ? "Abstrak" : "Abstract"}</span><textarea class="paper" data-act="edit-abstract" rows="9">${esc(d.abstract)}</textarea></label>${smapHtml("abstract")}`)}
     ${d.sections.map((s, i) => guided(SECTION_KEYS[i] || "intro", `<label class="field"><span>${["I", "II", "III", "IV", "V"][i] || i + 1}. ${esc(s.heading)}</span><textarea class="paper" data-act="edit-section" data-i="${i}" rows="${Math.max(10, Math.min(22, 4 + s.paragraphs.join(" ").length / 110 | 0))}">${esc(s.paragraphs.join("\n\n"))}</textarea></label>${smapHtml(SECTION_KEYS[i])}`)).join("")}
     <p class="hint">Pisahkan paragraf dengan satu baris kosong. Sitasi ditulis [nomor] sesuai daftar referensi terpilih; penomoran IEEE dirapikan otomatis saat ekspor. Teks dalam [kurung siku] lain adalah placeholder yang wajib diisi dari data atau analisis tim.</p>` : "";
+}
+function viewDraft() {
+  const d = state.draft.data;
+  const editor = state.step === 3 ? draftEditor() : "";
   const canDraft = state.me.title.trim() && state.gap.text.trim() && state.lit.selected.length >= 2;
   return `
-    ${header(3, "Judul dan draf paper", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci dan rencana metode, lalu susun draf. Draf ditulis seperti paper jadi; karena data belum ada, semua temuan dan angka ditulis sebagai [placeholder]. Warna di bawah setiap bagian menunjukkan komponen struktur IEEE-nya.")}
+    ${header(3, "Judul, metode, rencana hasil, dan draf kerangka", "Pertajam judul sesuai gap yang dipilih, tetapkan kata kunci dan rencana metode, susun dan kunci Rencana Hasil, lalu susun draf kerangka. Karena data belum ada, semua temuan dan angka ditulis sebagai [placeholder]. Ini akhir Fase A; pengumpulan data dan penulisan hasil dilakukan di Fase B (Langkah 5–8).")}
     ${titleCard()}
     <section class="card human">
       <h2>Keputusan tim: judul dan kata kunci final</h2>
@@ -1065,9 +1087,8 @@ function viewDraft() {
       <div id="draftStats">${draftStats()}</div>
       ${editor}
     </section>
-    ${resultsCard()}
-    ${syncCard()}
-    ${navRow("Lanjut ke integritas dan ekspor")}`;
+    ${d ? `<div class="alert info phase-next"><b>Fase A selesai bila Rencana Hasil sudah dikunci dan draf kerangka tersusun.</b> Lanjutkan ke Fase B setelah Anda siap mengumpulkan data. Untuk latihan, draf kerangka boleh langsung diekspor di Langkah 7.</div>` : ""}
+    ${navRow("Lanjut ke Fase B: pelaksanaan")}`;
 }
 
 // ---------- Hasil analisis milik dosen (ZIP) ----------
@@ -1329,11 +1350,12 @@ function diffWords(a, b) {
   return out;
 }
 const SYNC_PARTS = [["title", "Judul"], ["keywords", "Kata kunci"], ["intro", "Pendahuluan"], ["method", "Metode"]];
+const SYNC_SEC = { intro: 0, method: 2, discussion: 3 };
 function syncCurrent(k) {
   const d = state.draft.data;
   if (k === "title") return state.me.title;
   if (k === "keywords") return state.draft.keywords;
-  return (d.sections[k === "intro" ? 0 : 2]?.paragraphs || []).join("\n\n");
+  return (d.sections[SYNC_SEC[k]]?.paragraphs || []).join("\n\n");
 }
 function syncProposed(k) {
   const x = state.sync.data?.[k]; if (!x) return "";
@@ -1363,32 +1385,36 @@ function consistencyIssues() {
   if (ph.length) out.push(["Placeholder", `Masih ada placeholder: ${ph.map(([h, n]) => `${h} (${n})`).join(", ")}.`]);
   return out;
 }
-function syncCard() {
-  if (!state.draft.data) return "";
-  if (!state.results.applied) return `<section class="card"><h2>Sinkronkan paper dengan hasil</h2><p class="hint" style="margin:0">Tersedia setelah hasil analisis diunggah dan diterapkan. Langkah ini memperbarui Judul, Kata kunci, Pendahuluan, dan Metode agar sesuai hasil sebenarnya, termasuk mengungkapkan perubahan dari Rencana Hasil.</p></section>`;
-  const S = state.sync; const D = S.data; const issues = consistencyIssues();
-  const partHtml = ([k, label]) => {
+function syncPartHtml([k, label]) {
+  const S = state.sync; const D = S.data || {};
     const x = D[k]; const applied = S.applied?.[k];
     if (!x?.change) return `<div class="sync-part"><div class="sync-head"><b>${label}</b><span class="tag std-opt">✓ Tidak perlu diubah</span></div></div>`;
     const flags = (x.flags || []).flat();
     return `<div class="sync-part ${applied ? "sync-done" : ""}">
       <div class="sync-head"><b>${label}</b>${applied ? '<span class="tag std-opt">Diterapkan</span>' : '<span class="tag std-req">Usulan perubahan</span>'}</div>
       ${x.summary || x.reason ? `<div class="hint">${esc(x.summary || x.reason)}</div>` : ""}
+      ${x.altered?.length ? `<div class="alert err"><b>AI mengubah paragraf hasil atau keterbatasan</b> yang seharusnya tetap: ${x.altered.map((t) => `"${esc(t)}…"`).join("; ")}. Periksa perbandingannya sebelum menerapkan.</div>` : ""}
+      ${x.newUsed ? `<div class="hint">${x.newUsed.length ? `Referensi baru yang dipakai: ${x.newUsed.length}.` : "Referensi baru belum dipakai di usulan ini."}</div>` : ""}
       ${flags.length ? `<div class="alert err">Angka ${flags.map(esc).join(", ")} tidak ditemukan di file hasil atau draf. Periksa sebelum menerapkan.</div>` : ""}
       <details ${applied ? "" : "open"}><summary class="hint">Perbandingan sebelum–sesudah (<del>dihapus</del>, <ins>ditambahkan</ins>)</summary><div class="sync-diff">${diffWords(applied ? (typeof S.backup[k] === "string" ? S.backup[k] : (S.backup[k]?.paragraphs || []).join("\n\n")) : syncCurrent(k), syncProposed(k)).replace(/\n\n/g, "<br><br>")}</div></details>
       <div class="row-btns">${applied ? `<button type="button" class="btn ghost small" data-act="sync-undo" data-k="${k}">Kembalikan versi sebelumnya</button>` : `<button type="button" class="btn primary small" data-act="sync-apply" data-k="${k}">Terapkan</button>`}</div>
     </div>`;
-  };
+}
+function syncCard() {
+  if (!state.draft.data) return "";
+  if (!state.results.applied) return `<section class="card"><h2>Sinkronkan paper dengan hasil</h2><p class="hint" style="margin:0">Tersedia setelah hasil analisis diunggah dan diterapkan. Langkah ini memperbarui Judul, Kata kunci, Pendahuluan, dan Metode agar sesuai hasil sebenarnya, termasuk mengungkapkan perubahan dari Rencana Hasil.</p></section>`;
+  const S = state.sync; const D = S.data; const issues = consistencyIssues();
+
   return `
     <section class="card ai" id="syncCard">
       <h2>Sinkronkan paper dengan hasil</h2>
       <p class="hint" style="margin:0">Hasil dan Pembahasan, Kesimpulan, dan Abstrak sudah diperbarui dari file Anda. Langkah ini mengusulkan pembaruan bagian lain yang masih berisi versi rencana: Judul, Kata kunci, Pendahuluan (tujuan, hipotesis, kontribusi), dan Metode (fakta pelaksanaan dan perubahan dari rencana). Terapkan per bagian setelah Anda periksa.</p>
       ${state.blueprint.data && !state.blueprint.locked ? '<div class="alert warn">Rencana Hasil belum dikunci, jadi perubahan dari rencana tidak bisa dicatat.</div>' : ""}
       ${bpDeviations().length ? `<div class="hint">${bpDeviations().length} perubahan dari rencana terkunci akan diungkapkan di Metode.</div>` : ""}
-      <div>${btn("sync-make", D ? "Usulkan ulang" : "AI: usulkan pembaruan menyeluruh", { busyLabel: "Menyelaraskan paper… (20–60 detik)" })}</div>
+      <div>${btn("sync-make", D?.title ? "Usulkan ulang" : "AI: usulkan pembaruan menyeluruh", { busyLabel: "Menyelaraskan paper… (20–60 detik)" })}</div>
       ${errBox("sync-make")}${promptViewer("sync")}
-      ${D ? `<div class="sync-list">${SYNC_PARTS.map(partHtml).join("")}</div>
-        ${D.issues.length ? `<div class="alert info"><b>Hal lain yang perlu Anda perbaiki sendiri:</b><ul>${D.issues.map((x) => `<li><b>${esc(x.where)}</b>: ${esc(x.issue)}${x.suggestion ? ` <span class="hint">Saran: ${esc(x.suggestion)}</span>` : ""}</li>`).join("")}</ul></div>` : ""}` : ""}
+      ${D?.title ? `<div class="sync-list">${SYNC_PARTS.map(syncPartHtml).join("")}</div>
+        ${D.issues?.length ? `<div class="alert info"><b>Hal lain yang perlu Anda perbaiki sendiri:</b><ul>${D.issues.map((x) => `<li><b>${esc(x.where)}</b>: ${esc(x.issue)}${x.suggestion ? ` <span class="hint">Saran: ${esc(x.suggestion)}</span>` : ""}</li>`).join("")}</ul></div>` : ""}` : ""}
       <div class="rs-checks"><b>Cek konsistensi seluruh paper</b> <span class="hint">(otomatis, tanpa AI)</span>
         ${issues.length ? `<ul>${issues.map(([w, t]) => `<li class="warn"><span class="ci">!</span><span><b>${esc(w)}</b>: ${esc(t)}</span></li>`).join("")}</ul>` : '<ul><li class="ok"><span class="ci">✓</span>Tidak ditemukan ketidakkonsistenan.</li></ul>'}</div>
     </section>`;
@@ -1625,6 +1651,107 @@ function rsBlocksFor(idx, paragraphs, map) {
   return out;
 }
 
+// ---------- Fase B: Pelaksanaan ----------
+const PHASE = { A: ["Fase A · Perencanaan", "Bisa selesai dalam satu sesi"], B: ["Fase B · Pelaksanaan dan penulisan", "Minggu atau bulan kemudian"] };
+function execItems() { return execChecks(rsProfile()); }
+const execChecked = (it) => (it.auto === "locked" ? Boolean(state.blueprint.locked) : Boolean(state.exec.checks[it.id]));
+function execFactsText() {
+  const E = state.exec; const f = E.facts;
+  const lines = [];
+  if (f.start || f.end) lines.push(`Data collection period: ${f.start || "?"} to ${f.end || "?"}`);
+  if (f.n) lines.push(`Data collected (as recorded by the authors): ${f.n}`);
+  if (f.where) lines.push(`Setting / source: ${f.where}`);
+  for (const it of execItems()) if (execChecked(it)) lines.push(`Done: ${it.text}${E.notes[it.id] ? ` (${E.notes[it.id]})` : ""}`);
+  for (const l of E.log) lines.push(`Log ${l.date || ""}: ${l.activity}${l.n ? ` (n = ${l.n})` : ""}`);
+  return lines.join("\n");
+}
+function viewExec() {
+  const E = state.exec; const items = execItems(); const S = STANDARDS[rsProfile()];
+  const reqLeft = items.filter((it) => it.req && !execChecked(it)).length;
+  return `
+    ${header(4, "Pelaksanaan penelitian", "Fase B dimulai di sini. Kumpulkan dan olah data di luar aplikasi sesuai Rencana Hasil, lalu catat pelaksanaannya di sini. Catatan ini dipakai saat menyinkronkan bagian Metode dan saat review.")}
+    <section class="card">
+      <h2>Sebelum mulai</h2>
+      ${state.blueprint.data ? lockHtml() : '<div class="alert warn">Belum ada Rencana Hasil. Sebaiknya susun dan kunci rencana di Langkah 4 sebelum mengumpulkan data. <button type="button" class="btn ghost small" data-act="goto" data-i="3">Buka Langkah 4</button></div>'}
+      <div class="alert info"><b>Data sesi tersimpan di browser ini</b> (terpisah per akun). Bila Fase B dikerjakan di perangkat lain, unduh data sesi (.json) di sini lalu muat di perangkat itu.
+        <div class="row-btns" style="margin-top:8px"><button type="button" class="btn ghost small" data-act="export-json">Unduh data sesi (.json)</button>
+        <label class="btn ghost small file-btn">Muat data sesi (.json)<input type="file" data-act="import-json" accept=".json,application/json"></label></div></div>
+      ${errBox("import-json")}
+    </section>
+    <section class="card human">
+      <h2>Checklist pelaksanaan: ${esc(S.name)}</h2>
+      <p class="hint" style="margin:0">${reqLeft ? `${reqLeft} butir wajib belum dicentang.` : "✓ Semua butir wajib sudah dicentang."} Langkah berikutnya tetap bisa dibuka; checklist ini membantu Anda dan menjadi bahan bagian Metode.</p>
+      <ul class="exec-list">${items.map((it) => `
+        <li class="${execChecked(it) ? "done" : ""}">
+          <label class="exec-row"><input type="checkbox" data-act="exec-check" data-id="${it.id}" ${execChecked(it) ? "checked" : ""} ${it.auto ? "disabled" : ""}>
+            <span><span class="tag ${it.req ? "std-req" : "std-opt"}">${it.req ? "Wajib" : "Dianjurkan"}</span> ${esc(it.text)}${it.auto ? ' <span class="hint">(otomatis dari Rencana Hasil)</span>' : ""}</span></label>
+          ${it.note ? `<input class="exec-note" data-act="exec-note" data-id="${it.id}" placeholder="${esc(it.note)}" value="${esc(E.notes[it.id] || "")}">` : ""}
+        </li>`).join("")}</ul>
+    </section>
+    <section class="card human">
+      <h2>Fakta pelaksanaan</h2>
+      <p class="hint" style="margin:0">Diisi sesuai kenyataan. AI hanya boleh memakai angka dari sini dan dari file hasil saat memperbarui Metode.</p>
+      <div class="row">
+        <label class="field" style="flex:1 1 160px"><span>Mulai pengumpulan data</span><input type="date" data-bind="exec.facts.start" value="${esc(E.facts.start)}"></label>
+        <label class="field" style="flex:1 1 160px"><span>Selesai</span><input type="date" data-bind="exec.facts.end" value="${esc(E.facts.end)}"></label>
+        <label class="field" style="flex:2 1 220px"><span>Jumlah data/partisipan terkumpul</span><input data-bind="exec.facts.n" placeholder="mis. 256 responden; 14.953 ulasan; 12 informan" value="${esc(E.facts.n)}"></label>
+      </div>
+      <label class="field"><span>Lokasi, sumber, atau konteks</span><input data-bind="exec.facts.where" placeholder="mis. mahasiswa 3 kampus di Medan; marketplace X, Jan–Mar 2027" value="${esc(E.facts.where)}"></label>
+    </section>
+    <section class="card human">
+      <h2>Log pelaksanaan dan penyimpangan</h2>
+      <p class="hint" style="margin:0">Catat kejadian penting saat terjadi: penyebaran kuesioner, wawancara, pelatihan model, pengujian, kendala, dan perubahan dari rencana beserta alasannya.</p>
+      ${E.log.length ? `<ul class="exec-log">${E.log.map((l, i) => `<li><span><b>${esc(l.date || "-")}</b> · ${esc(l.activity)}${l.n ? ` <span class="hint">(n = ${esc(l.n)})</span>` : ""}</span><button type="button" class="btn ghost small" data-act="log-del" data-i="${i}" aria-label="Hapus catatan">Hapus</button></li>`).join("")}</ul>` : '<p class="hint">Belum ada catatan.</p>'}
+      <div class="row log-add">
+        <label class="field" style="flex:0 1 160px"><span>Tanggal</span><input type="date" id="logDate"></label>
+        <label class="field" style="flex:3 1 260px"><span>Kegiatan atau perubahan</span><input id="logAct" placeholder="mis. Pilot test 30 responden; butir PU3 diperbaiki"></label>
+        <label class="field" style="flex:0 1 110px"><span>n (opsional)</span><input id="logN"></label>
+        <button type="button" class="btn ghost" data-act="log-add" style="align-self:flex-end">Tambah</button>
+      </div>
+    </section>
+    ${navRow("Lanjut ke hasil dan sinkronisasi")}`;
+}
+
+// ---------- Fase B: Hasil, sinkronisasi, dan pembaruan literatur ----------
+function litRefreshCard() {
+  if (!state.results.applied) return `<section class="card"><h2>Perbarui literatur</h2><p class="hint" style="margin:0">Tersedia setelah hasil diterapkan: cari artikel terbaru dan studi pembanding untuk temuan Anda, lalu perbarui pembahasan.</p></section>`;
+  const R = state.litr; const selIds = new Set(state.lit.selected.map((w) => w.id));
+  const full = state.lit.selected.length >= MAX_PAPERS;
+  const yrs = state.lit.selected.map((w) => Number(w.year) || 0).filter(Boolean);
+  const card = (w) => `<li class="lr-item"><div style="min-width:0"><div class="t">${esc(w.title)}</div><div class="s">${esc(shortAuthors(w.authors))} · ${w.year || "t.t."}${w.venue ? ` · <i>${esc(w.venue)}</i>` : ""} · DOI: <a href="https://doi.org/${esc(w.doi)}" target="_blank" rel="noopener">${esc(w.doi)}</a></div>${w.abstract ? `<details><summary>Abstrak</summary><p class="abs">${esc(w.abstract)}</p></details>` : '<span class="tag muted">tanpa abstrak</span>'}</div>
+    ${selIds.has(w.id) ? `<span class="tag std-opt">${R.added.includes(w.id) ? "Ditambahkan" : "Sudah dipakai"}</span>` : `<button type="button" class="btn ghost small" data-act="lr-add" data-id="${esc(w.id)}" ${full ? "disabled" : ""}>Tambah</button>`}</li>`;
+  const pool = (list) => list.filter(Boolean).slice(0, 6).map(card).join("");
+  const addedN = R.added.length; const D = state.sync.data?.discussion;
+  return `
+    <section class="card ai" id="litRefreshCard">
+      <h2>Perbarui literatur sebelum pembahasan final</h2>
+      <p class="hint" style="margin:0">Referensi dipilih saat perencanaan (terbaru ${yrs.length ? Math.max(...yrs) : "-"}). Sebelum finalisasi, cari artikel yang terbit sesudahnya dan studi pembanding yang sesuai dengan temuan sebenarnya. ${state.lit.selected.length}/${MAX_PAPERS} referensi terpakai${full ? "; hapus referensi yang tidak relevan di Langkah 2 untuk menambah yang baru" : ""}.</p>
+      <h3>1. Artikel terbaru</h3>
+      <div class="row-btns">${btn("lr-recent", R.recent.length ? "Cari ulang" : `Cari artikel terbit sejak ${yrs.length ? Math.max(...yrs) : new Date().getFullYear() - 1}`, { busyLabel: "Mencari di OpenAlex…" })}<span class="hint">Kueri: ${esc(state.lit.query || state.draft.keywords || state.me.title)}</span></div>
+      ${errBox("lr-recent")}
+      ${R.recent.length ? `<ul class="lr-list">${pool(R.recent)}</ul>` : R.recentDone ? '<p class="hint">Tidak ada artikel baru yang ditemukan.</p>' : ""}
+      <h3>2. Studi pembanding per temuan</h3>
+      <div>${btn("lr-findings", R.findings.length ? "Susun ulang dan cari" : "AI: cari pembanding untuk setiap temuan", { busyLabel: "Menyusun kueri dan mencari… (15–40 detik)" })}</div>
+      ${errBox("lr-findings")}${promptViewer("litq")}
+      ${R.findings.map((f) => `<div class="lr-finding"><b>${esc(f.finding)}</b> <span class="hint">· kueri: ${esc(f.query)}</span>${f.results.length ? `<ul class="lr-list">${pool(f.results)}</ul>` : '<p class="hint">Tidak ada hasil.</p>'}</div>`).join("")}
+      <h3>3. Perbarui pembahasan</h3>
+      ${addedN ? `<p class="hint" style="margin:0">${addedN} referensi baru ditambahkan. AI memperbarui paragraf pembanding dan interpretasi di Hasil dan Pembahasan; paragraf hasil dan angka tidak boleh berubah.</p>
+        <div>${btn("discuss-make", D ? "Usulkan ulang" : "AI: perbarui pembahasan dengan referensi baru", { busyLabel: "Memperbarui pembahasan… (20–60 detik)" })}</div>
+        ${errBox("discuss-make")}${promptViewer("discuss")}
+        ${D ? syncPartHtml(["discussion", "Hasil dan Pembahasan (pembahasan)"]) : ""}` : '<p class="hint" style="margin:0">Tambahkan referensi baru dari langkah 1 atau 2 terlebih dahulu.</p>'}
+    </section>`;
+}
+function viewResults() {
+  return `
+    ${header(5, "Hasil, sinkronisasi, dan literatur", "Unggah hasil analisis Anda sendiri, terapkan ke paper, sinkronkan bagian lain dengan hasil, lalu perbarui literatur sebelum pembahasan final.")}
+    ${state.draft.data ? "" : '<div class="alert warn">Belum ada draf. Susun draf kerangka di Langkah 4.</div>'}
+    ${resultsCard()}
+    ${syncCard()}
+    ${litRefreshCard()}
+    ${state.draft.data ? `<section class="card human"><h2>Draf paper saat ini</h2><p class="hint" style="margin:0">Sunting langsung di sini setelah menerapkan perubahan.</p>${draftEditor()}</section>` : ""}
+    ${navRow("Lanjut ke integritas dan ekspor")}`;
+}
+
 // ---------- Langkah 5 ----------
 function paperPreview() {
   const d = state.draft.data;
@@ -1721,7 +1848,7 @@ function viewExport() {
     [ph === 0, ph ? `${ph} placeholder di isi naskah masih perlu diisi setelah analisis (ditandai kuning di .docx).` : "Tidak ada placeholder tersisa di isi naskah."],
   ];
   return `
-    ${header(4, "Integritas dan ekspor", "Lengkapi Open Contributionship, Open Data, dan pernyataan penggunaan AI, centang checklist, lalu unduh draf dalam template IEEE.")}
+    ${header(6, "Integritas dan ekspor", "Lengkapi Open Contributionship, Open Data, dan pernyataan penggunaan AI, centang checklist, lalu unduh draf dalam template IEEE.")}
     ${paperPreview()}
     ${uncited.length ? `<div class="alert warn">${uncited.length} referensi terpilih belum dikutip dan tidak akan masuk daftar referensi: ${uncited.map((w) => `[${w.n}]`).join(", ")}.</div>` : ""}
     ${contribCard()}
@@ -1856,6 +1983,54 @@ const actions = {
     state.blueprint = { data: r.result, basis: bpBasis() }; noteModel(r);
     toast("Rencana hasil tersusun. Periksa dan sunting sebelum menyusun draf.", { ok: true });
   }),
+  "log-add": () => {
+    const act = $("#logAct").value.trim(); if (!act) { toast("Isi kegiatan terlebih dahulu."); return; }
+    state.exec.log.push({ date: $("#logDate").value, activity: act.slice(0, 300), n: $("#logN").value.trim().slice(0, 40) });
+    state.exec.log.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    save(); render();
+  },
+  "log-del": (el) => { state.exec.log.splice(Number(el.dataset.i), 1); save(); render(); },
+  "lr-recent": () => runTask("lr-recent", async () => {
+    const yrs = state.lit.selected.map((w) => Number(w.year) || 0).filter(Boolean);
+    const q = state.lit.query || state.draft.keywords || state.me.title;
+    const r = await api("/api/search", { query: q, yearFrom: yrs.length ? Math.max(...yrs) : new Date().getFullYear() - 1, sort: "recent", perPage: 25 });
+    const have = new Set(state.lit.selected.map((w) => w.id));
+    state.litr.recent = r.results.filter((w) => !have.has(w.id) || state.litr.added.includes(w.id)).slice(0, 10);
+    state.litr.recentDone = true;
+  }),
+  "lr-findings": () => runTask("lr-findings", async () => {
+    const d = state.draft.data; const sec = d.sections[3] || { paragraphs: [], roles: [] };
+    const results = sec.paragraphs.filter((_, i) => !sec.roles?.[i] || ["results", "interpretation"].includes(sec.roles[i]));
+    const q = await api("/api/llm", { task: "litq", title: state.me.title, keywords: state.draft.keywords, questions: state.blueprint.data?.questions || [], results, lang: state.me.lang });
+    const out = [];
+    for (const f of q.result.queries) {
+      let res = [];
+      try { res = (await api("/api/search", { query: f.query, yearFrom: state.lit.yearFrom, sort: "relevance", perPage: 10 })).results; } catch {}
+      out.push({ ...f, results: res.slice(0, 6) });
+    }
+    state.litr.findings = out;
+  }),
+  "lr-add": (el) => {
+    const id = el.dataset.id; const R = state.litr;
+    if (state.lit.selected.length >= MAX_PAPERS) { toast(`Maksimal ${MAX_PAPERS} referensi. Hapus yang tidak relevan di Langkah 2.`); return; }
+    const w = [...R.recent, ...R.findings.flatMap((f) => f.results)].find((x) => x.id === id);
+    if (!w || state.lit.selected.some((x) => x.id === id)) return;
+    const n = state.lit.selected.reduce((mx, x) => Math.max(mx, x.n), 0) + 1;
+    state.lit.selected.push({ ...w, n, prodi: "", late: true });
+    R.added.push(id); save(); render(); toast(`Ditambahkan sebagai referensi [${n}].`, { ok: true });
+  },
+  "discuss-make": () => runTask("discuss-make", async () => {
+    const d = state.draft.data; const sec = d.sections[3];
+    const newRefs = state.lit.selected.filter((w) => state.litr.added.includes(w.id)).map((w) => w.n);
+    const r = await api("/api/llm", {
+      task: "discuss", title: state.me.title, lang: state.me.lang, papers: paperPayload(false), newRefs,
+      paragraphs: sec.paragraphs.map((t, i) => ({ role: sec.roles?.[i] || "", text: t })),
+    });
+    const S = state.sync;
+    S.data = { ...(S.data || {}), discussion: { change: true, ...r.result } };
+    if (S.applied) delete S.applied.discussion;
+    noteModel(r);
+  }),
   "bp-lock": async () => {
     const bp = state.blueprint.data; if (!bp || state.blueprint.locked) return;
     if (!window.confirm("Kunci Rencana Hasil sekarang? Rencana tetap bisa diubah setelahnya, tetapi setiap perubahan akan dicatat dan perlu diungkapkan di paper.")) return;
@@ -1870,23 +2045,24 @@ const actions = {
       task: "sync", title: state.me.title, keywords: state.draft.keywords, lang: state.me.lang, abstract: d.abstract,
       sections: d.sections.map((x) => ({ heading: x.heading, paragraphs: x.paragraphs })), papers: paperPayload(false),
       tables: I.tables.map((t) => ({ name: t.name, headers: t.headers, rows: t.rows.slice(0, 40) })), texts: I.texts.map((t) => ({ name: t.name, text: String(t.text).slice(0, 4000) })),
-      raw: I.raw, project: I.project || null, deviations: bpDeviations(), profile: rsProfile(),
+      raw: I.raw, project: I.project || null, deviations: bpDeviations(), profile: rsProfile(), execFacts: execFactsText(),
     });
-    state.sync = { data: r.result, backup: {}, applied: {} }; noteModel(r);
+    const keep = state.sync.data?.discussion;
+    state.sync = { data: { ...r.result, ...(keep ? { discussion: keep } : {}) }, backup: state.sync.backup?.discussion ? { discussion: state.sync.backup.discussion } : {}, applied: state.sync.applied?.discussion ? { discussion: true } : {} }; noteModel(r);
   }),
   "sync-apply": (el) => {
     const k = el.dataset.k; const S = state.sync; const x = S.data?.[k]; const d = state.draft.data; if (!x || !d) return;
-    S.backup[k] = k === "intro" || k === "method" ? structuredClone(d.sections[k === "intro" ? 0 : 2]) : syncCurrent(k);
+    S.backup[k] = k in SYNC_SEC ? structuredClone(d.sections[SYNC_SEC[k]]) : syncCurrent(k);
     if (k === "title") { state.me.title = x.proposed; if (state.blueprint.locked) state.blueprint.basis = bpBasis(); }
     else if (k === "keywords") state.draft.keywords = x.proposed;
-    else { const sec = d.sections[k === "intro" ? 0 : 2]; sec.paragraphs = x.paragraphs.map((p) => p.text); sec.roles = x.paragraphs.map((p) => p.role); sec.orig = [...sec.paragraphs]; }
+    else { const sec = d.sections[SYNC_SEC[k]]; sec.paragraphs = x.paragraphs.map((p) => p.text); sec.roles = x.paragraphs.map((p) => p.role); sec.orig = [...sec.paragraphs]; }
     S.applied[k] = true; save(); render(); toast("Diterapkan. Periksa hasilnya di editor draf.", { ok: true });
   },
   "sync-undo": (el) => {
     const k = el.dataset.k; const S = state.sync; const d = state.draft.data; if (!S.applied?.[k]) return;
     if (k === "title") { state.me.title = S.backup[k]; if (state.blueprint.locked) state.blueprint.basis = bpBasis(); }
     else if (k === "keywords") state.draft.keywords = S.backup[k];
-    else d.sections[k === "intro" ? 0 : 2] = S.backup[k];
+    else d.sections[SYNC_SEC[k]] = S.backup[k];
     delete S.applied[k]; save(); render(); toast("Dikembalikan ke versi sebelumnya.");
   },
   "bp-del": (el) => {
@@ -2017,7 +2193,7 @@ const actions = {
 };
 
 // ---------- delegasi event ----------
-const INPUT_ACTS = ["bp-q", "bp-cap", "rs-profile", "results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
+const INPUT_ACTS = ["exec-check", "exec-note", "import-json", "bp-q", "bp-cap", "rs-profile", "results-files", "rs-use", "rs-place", "rs-cap", "rs-dec", "consent", "review-done", "approach", "choose-method", "guide-check", "dept-select", "model", "lens", "tag-prodi", "choose-title", "toggle-work", "choose-gap", "check", "lang", "od-type", "aspect", "edit-abstract", "edit-section", "ack", "contrib", "key-ai", "key-openalex"];
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");
   if (!el || el.disabled || INPUT_ACTS.includes(el.dataset.act)) return;
@@ -2041,6 +2217,20 @@ document.addEventListener("change", (e) => {
   }
   if (act === "rs-use") { const x = rsSugOf(el.dataset.id); if (x) x.use = el.checked; save(); render(); return; }
   if (act === "rs-place") { const x = rsSugOf(el.dataset.id); if (x) x.placement = el.value; save(); render(); return; }
+  if (act === "exec-check") { state.exec.checks[el.dataset.id] = el.checked; save(); render(); return; }
+  if (act === "import-json") {
+    const f = el.files?.[0]; if (!f) return;
+    runTask("import-json", async () => {
+      const txt = await f.text(); let obj;
+      try { obj = JSON.parse(txt); } catch { throw new Error("File bukan data sesi Research Lab yang valid."); }
+      if (!obj || typeof obj !== "object" || !obj.me || !obj.lit) throw new Error("File bukan data sesi Research Lab yang valid.");
+      if (!window.confirm(`Muat data sesi "${String(obj.me.title || "tanpa judul").slice(0, 80)}"? Data sesi di browser ini untuk akun ini akan diganti.`)) return;
+      localStorage.setItem(scoped(STORE_KEY), txt);
+      state = load();
+      toast("Data sesi dimuat. API key tidak ikut tersimpan di file; isi ulang bila perlu.", { ok: true, ms: 6000 });
+    });
+    return;
+  }
   if (act === "rs-profile") { state.results.profile = el.value; save(); render(); return; }
   if (act === "rs-dec") { state.results.dec = el.value; save(); render(); return; }
   if (act === "consent") { state.me.consent = el.checked; save(); render(); return; }
@@ -2134,6 +2324,7 @@ document.addEventListener("input", (e) => {
   }
   const act = el.dataset?.act;
   if (act === "rs-cap") { const x = rsSugOf(el.dataset.id); if (x) x.caption = el.value; save(); return; }
+  if (act === "exec-note") { state.exec.notes[el.dataset.id] = el.value.slice(0, 300); save(); return; }
   if (act === "bp-q") { const q = state.blueprint.data?.questions[Number(el.dataset.i)]; if (q) q.text = el.value; save(); return; }
   if (act === "bp-cap") { const x = state.blueprint.data?.items.find((i) => i.id === el.dataset.id); if (x) x.caption = el.value; save(); return; }
   if (act === "aspect") { state.gap.matrix.aspects[Number(el.dataset.i)] = el.value; save(); return; }

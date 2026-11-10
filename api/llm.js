@@ -5,6 +5,7 @@ import { mockLlm } from "../lib/mock.js";
 import { resultsPrompt, cleanResults } from "../lib/results.js";
 import { blueprintPrompt, cleanBlueprint } from "../lib/blueprint.js";
 import { syncPrompt, cleanSync } from "../lib/sync.js";
+import { litqPrompt, cleanLitq, discussPrompt, cleanDiscuss } from "../lib/litrefresh.js";
 
 const TASKS = {
   keywords: { build: keywordsPrompt, clean: (j, b) => cleanKeywords(j, b), temperature: 0.3, maxTokens: 800 },
@@ -13,6 +14,8 @@ const TASKS = {
   review: { build: reviewPrompt, clean: (j, b) => cleanReview(j, b), temperature: 0.2, maxTokens: 6500 },
   method: { build: methodPrompt, clean: (j, b) => cleanMethod(j, b), temperature: 0.5, maxTokens: 1800 },
   contrib: { build: contribPrompt, clean: (j, b) => cleanContrib(j, b), temperature: 0.3, maxTokens: 1500 },
+  litq: { build: litqPrompt, clean: (j) => cleanLitq(j), temperature: 0.3, maxTokens: 1500 },
+  discuss: { build: discussPrompt, clean: (j, b) => cleanDiscuss(j, b), temperature: 0.3, maxTokens: 8000 },
   sync: { build: syncPrompt, clean: (j, b) => cleanSync(j, b), temperature: 0.2, maxTokens: 9000 },
   blueprint: { build: blueprintPrompt, clean: (j, b) => cleanBlueprint(j, b), temperature: 0.3, maxTokens: 6000 },
   results: { build: resultsPrompt, clean: (j, b) => cleanResults(j, b), temperature: 0.2, maxTokens: 8000 },
@@ -46,8 +49,8 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
     } catch (e) {
       // Draf panjang yang terpotong, rusak, atau terlalu lama: coba sekali lagi dengan versi ringkas.
-      if (!["draft", "review", "results", "blueprint", "sync"].includes(body.task) || !["truncated", "badjson", "timeout"].includes(e.code)) throw e;
-      if (["review", "results", "blueprint", "sync"].includes(body.task)) {
+      if (!["draft", "review", "results", "blueprint", "sync", "discuss"].includes(body.task) || !["truncated", "badjson", "timeout"].includes(e.code)) throw e;
+      if (["review", "results", "blueprint", "sync", "discuss"].includes(body.task)) {
         // Review: cukup coba sekali lagi dengan ruang token lebih besar.
         const { json, model, label } = await askJson(system, user, { ...opts, maxTokens: body.task === "results" ? 12000 : 9000 });
         return sendJson(res, 200, { result: t.clean(json, body), model, label, prompt: { system, user } });
