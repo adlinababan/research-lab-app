@@ -37,6 +37,8 @@ say "2/9 Mengambil kode aplikasi ($BRANCH)"
 id researchlab >/dev/null 2>&1 || useradd --system --home-dir "$APP" --shell /usr/sbin/nologin researchlab
 if [ -d "$APP/.git" ]; then
   git -C "$APP" fetch -q origin && git -C "$APP" checkout -q "$BRANCH" && git -C "$APP" pull -q --ff-only
+elif [ -f "$APP/vps/ci4/composer.json" ]; then
+  echo "Memakai kode yang sudah ada di $APP (dari file ZIP, tanpa git)."
 else
   git clone -q --branch "$BRANCH" "$REPO" "$APP"
 fi
