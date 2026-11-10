@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================================
-# Pemasangan Research Lab di VPS Ubuntu 24.04 (Nginx + PHP 8.3-FPM + MySQL 8 + Node).
+# Pemasangan Research Lab di VPS Ubuntu 24.04 (Nginx + PHP 8.3-FPM + MySQL 8/MariaDB + Node).
 # Jalankan sebagai root di VPS yang baru:
 #
 #   DOMAIN=research-lab.contoh.ac.id EMAIL=admin@contoh.ac.id ADMIN_USER=admin bash install.sh
@@ -25,7 +25,13 @@ say() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 say "1/9 Memasang paket sistem"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q nginx mysql-server git curl unzip openssl composer certbot python3-certbot-nginx \
+# Bila MariaDB sudah terpasang, pakai MariaDB (bentrok dengan paket mysql-server). Bisa dipaksa: DB=mariadb|mysql
+if [ -z "${DB:-}" ]; then
+  if dpkg-query -W -f='${Status}\n' 'mariadb-*' 2>/dev/null | grep -q 'install ok installed'; then DB=mariadb; else DB=mysql; fi
+fi
+DBPKG=$([ "$DB" = mariadb ] && echo mariadb-server || echo mysql-server)
+echo "Database server: $DBPKG"
+apt-get install -y -q nginx "$DBPKG" git curl unzip openssl composer certbot python3-certbot-nginx \
   php8.3-fpm php8.3-cli php8.3-mysql php8.3-intl php8.3-mbstring php8.3-curl php8.3-xml php8.3-zip
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
   say "Memasang Node.js 22 (NodeSource)"
@@ -48,6 +54,8 @@ say "3/9 Memasang dependensi PHP (Composer)"
 cd "$CI" && COMPOSER_ALLOW_SUPERUSER=1 composer install -q --no-dev --optimize-autoloader --no-interaction
 
 say "4/9 Menyiapkan rahasia dan database"
+systemctl enable -q --now "$( [ "$DB" = mariadb ] && echo mariadb || echo mysql )"
+mysql -e "SELECT 1" >/dev/null || { echo "Root tidak bisa masuk ke $DBPKG tanpa password. Jalankan ulang dengan: MYSQL_PWD=passwordRootDB DOMAIN=... bash install.sh"; exit 1; }
 mkdir -p /etc/research-lab && chmod 750 /etc/research-lab
 if [ -f /etc/research-lab/node.env ]; then
   TOKEN=$(grep '^INTERNAL_TOKEN=' /etc/research-lab/node.env | cut -d= -f2-)
