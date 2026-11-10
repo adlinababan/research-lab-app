@@ -22,7 +22,7 @@
   </div>
   <div class="top-actions">
     <span class="chip" id="statusChip">Memeriksa koneksi…</span>
-    <span class="user-box" id="userBox" hidden><span class="chip user-chip" title="Akun yang sedang masuk">👤 <b id="userName"></b></span><button class="btn ghost small" id="logoutBtn" type="button">Keluar</button></span>
+    <span class="user-box" id="userBox" hidden><button class="btn ghost small" id="projBtn" type="button" data-act="proj-open" hidden>📁 Proyek</button><span class="save-state" id="saveState" aria-live="polite"></span><span class="chip user-chip" title="Akun yang sedang masuk">👤 <b id="userName"></b></span><a class="btn ghost small" id="adminLink" href="/admin" target="_blank" rel="noopener" hidden>Admin</a><button class="btn ghost small" id="logoutBtn" type="button">Keluar</button></span>
     <button class="btn ghost small" id="resetBtn" type="button">Mulai baru</button>
   </div>
 </header>
@@ -42,6 +42,8 @@
   </form>
 </div>
 
+<div class="srv-banner" id="srvBanner" role="status" hidden></div>
+<div class="modal" id="projModal" hidden></div>
 <div class="modal login" id="loginModal" hidden>
   <form class="modal-card login-card" id="loginForm" autocomplete="on">
     <div class="login-brand">

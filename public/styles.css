@@ -422,3 +422,20 @@ body.locked { overflow: hidden; }
 .lr-item .s { font-size: 13.5px; color: var(--muted); }
 .lr-finding { margin-top: 10px; }
 .phase-next { margin-top: 0; }
+
+/* ---------- Mode server (VPS) ---------- */
+.save-state { font-size: 12.5px; color: var(--muted); max-width: 220px; line-height: 1.2; }
+.save-state.error, .save-state.conflict { color: var(--err); font-weight: 600; }
+.save-state.saved { color: var(--ok); }
+#projBtn { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-banner { position: sticky; top: 0; z-index: 40; padding: 10px 16px; background: var(--warn-tint, #fff4dc); color: var(--ink); border-bottom: 1px solid var(--line); font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pm-card { width: min(720px, 100%); max-height: 88vh; overflow: auto; display: grid; gap: 12px; }
+.pm-head { display: flex; justify-content: space-between; align-items: center; }
+.pm-head h2 { margin: 0; }
+.pm-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.pm-tab { border: 0; background: transparent; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font: inherit; }
+.pm-tab.on { color: var(--ink); border-bottom-color: var(--human); font-weight: 600; }
+.pm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pm-list li { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.pm-list li.cur { border-color: var(--human); }
+.pm-list code { word-break: break-all; font-size: 12px; }

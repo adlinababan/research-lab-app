@@ -1,0 +1,20 @@
+{
+    "name": "research-lab/vps",
+    "description": "Research Lab: CodeIgniter 4 + MySQL (login, proyek, tim, versi, admin) dengan layanan Node internal untuk AI",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "ext-intl": "*",
+        "ext-mbstring": "*",
+        "ext-curl": "*",
+        "codeigniter4/framework": "^4.7"
+    },
+    "autoload": {
+        "psr-4": { "App\\": "app/", "Config\\": "app/Config/" },
+        "exclude-from-classmap": ["**/Database/Migrations/**"]
+    },
+    "config": { "optimize-autoloader": true, "preferred-install": "dist", "sort-packages": true },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

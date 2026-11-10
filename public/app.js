@@ -80,17 +80,27 @@ const defaultState = () => ({
 });
 
 let config = null;
+// Status proyek di server (mode VPS); dideklarasikan sebelum load() pertama.
+const srv = { pid: null, version: 0, role: "", title: "", status: "", savedAt: null, timer: null, inflight: false, dirty: false, conflict: null, members: [], userRole: "" };
 const busy = {};
 const errors = {};
 let state = load();
 
 // ---------- penyimpanan lokal ----------
+// Kunci cache lokal: per akun; di mode server juga per proyek.
+function storeKey() { return srv.pid ? `${scoped(STORE_KEY)}:p${srv.pid}` : scoped(STORE_KEY); }
 function load() {
   try {
-    const raw = localStorage.getItem(scoped(STORE_KEY));
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const s = deepMerge(defaultState(), parsed);
+    const raw = localStorage.getItem(storeKey());
+    if (raw) return normalizeState(JSON.parse(raw));
+  } catch {}
+  return defaultState();
+}
+// Merapikan data sesi dari localStorage, file .json, atau server (termasuk migrasi versi lama).
+function normalizeState(parsed) {
+  {
+    {
+      const s = deepMerge(defaultState(), parsed || {});
       if (parsed.stepsV !== 2 && s.step >= 4) s.step += 2; // susunan 6 langkah lama -> 8 langkah dua fase
       s.stepsV = 2;
       s.step = Math.max(0, Math.min(STEPS.length - 1, Number(s.step) || 0));
@@ -109,8 +119,7 @@ function load() {
       syncContrib(s);
       return s;
     }
-  } catch {}
-  return defaultState();
+  }
 }
 // Panjang isian kontribusi selalu mengikuti jumlah penulis.
 function syncContrib(s = state) {
@@ -119,13 +128,19 @@ function syncContrib(s = state) {
 }
 function deepMerge(base, extra) {
   for (const k of Object.keys(extra || {})) {
+    // Objek kosong yang sempat berubah menjadi [] (mis. lewat PHP) dikembalikan ke bentuk objek bawaan.
+    if (base[k] && typeof base[k] === "object" && !Array.isArray(base[k]) && Array.isArray(extra[k]) && extra[k].length === 0) continue;
     if (base[k] && typeof base[k] === "object" && !Array.isArray(base[k]) && extra[k] && typeof extra[k] === "object" && !Array.isArray(extra[k])) deepMerge(base[k], extra[k]);
     else base[k] = extra[k];
   }
   return base;
 }
 let saveTimer = null;
-function flushSave() { clearTimeout(saveTimer); if (loggedOutGate) return; try { localStorage.setItem(scoped(STORE_KEY), JSON.stringify(state)); } catch {} }
+function flushSave() {
+  clearTimeout(saveTimer); if (loggedOutGate) return;
+  try { localStorage.setItem(storeKey(), JSON.stringify(state)); } catch {}
+  if (srv.pid) scheduleServerSave();
+}
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 250); }
 window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
@@ -221,6 +236,7 @@ function prodiChips(present, label) {
 async function api(path, body, { raw = false } = {}) {
   const h = { "Content-Type": "application/json", "x-access-code": accessCode(), "x-client-id": clientId() };
   const au = getAuth(); if (au) h["x-auth-token"] = au.token;
+  if (srv.pid) h["x-project-id"] = String(srv.pid);
   const k = getKeys();
   if (k.ai) h["x-ai-key"] = k.ai;
   if (k.openalex) h["x-openalex-key"] = k.openalex;
@@ -1312,7 +1328,7 @@ function lockHtml() {
   if (!B.data) return "";
   if (!B.locked) return `<div class="alert info bp-lockbox"><div><b>Kunci rencana sebelum mengambil atau mengunggah data.</b> Rencana yang dikunci disimpan bertanggal dengan sidik jari. Perubahan setelahnya tetap boleh, tetapi dicatat dan diungkapkan di bagian Metode, sehingga hipotesis tidak bisa diam-diam disesuaikan dengan hasil.</div><button type="button" class="btn primary" data-act="bp-lock">🔒 Kunci rencana</button></div>`;
   const dev = bpDeviations();
-  return `<div class="alert ok"><b>🔒 Rencana dikunci</b> ${new Date(B.locked.at).toLocaleString("id-ID")} · sidik jari <code>${esc(B.locked.hash.slice(0, 12))}</code><br><span class="hint">Waktu berasal dari perangkat ini. Sidik jari membuktikan isi rencana yang dikunci; cantumkan di lampiran bila perlu.</span></div>
+  return `<div class="alert ok"><b>🔒 Rencana dikunci</b> ${new Date(B.locked.at).toLocaleString("id-ID")} · sidik jari <code>${esc(B.locked.hash.slice(0, 12))}</code><br><span class="hint">${B.locked.server ? "Waktu dicatat oleh server dan tersimpan di riwayat kunci proyek." : "Waktu berasal dari perangkat ini."} Sidik jari membuktikan isi rencana yang dikunci; cantumkan di lampiran bila perlu.</span></div>
     ${dev.length ? `<div class="alert warn"><b>Perubahan dari rencana terkunci (${dev.length})</b><ul>${dev.map((d) => `<li>${esc(d)}</li>`).join("")}</ul><span class="hint">Ini wajar dalam penelitian, asalkan diungkapkan. Langkah "Sinkronkan paper" akan menuliskannya di bagian Metode.</span></div>` : '<p class="hint" style="margin:0">Belum ada perubahan dari rencana terkunci.</p>'}`;
 }
 
@@ -1983,6 +1999,46 @@ const actions = {
     state.blueprint = { data: r.result, basis: bpBasis() }; noteModel(r);
     toast("Rencana hasil tersusun. Periksa dan sunting sebelum menyusun draf.", { ok: true });
   }),
+  "srv-reload": async () => {
+    if (!window.confirm("Muat versi terbaru dari server? Perubahan Anda yang belum tersimpan akan hilang. Unduh data sesi (.json) dulu bila perlu.")) return;
+    srv.status = "saved"; await openServerProject(srv.pid); toast("Versi terbaru dimuat.");
+  },
+  "srv-overwrite": async () => {
+    if (!window.confirm("Timpa versi di server dengan versi Anda? Perubahan anggota lain sejak terakhir Anda simpan akan tergantikan (masih bisa dipulihkan dari riwayat versi).")) return;
+    srv.status = "saving"; await serverSave(true);
+  },
+  "proj-open": () => openProjModal("list"),
+  "pm-close": () => { projModal.open = false; renderProjModal(); },
+  "pm-tab": (el) => { projModal.tab = el.dataset.k; projModal.msg = ""; projModal.err = ""; renderProjModal(); },
+  "pm-open": (el) => pmRun(async () => { flushSave(); clearTimeout(srv.timer); if (srv.pid && srv.role !== "viewer" && srv.status !== "conflict") await serverSave(); await openServerProject(Number(el.dataset.id)); projModal.open = false; }),
+  "pm-new": () => pmRun(async () => {
+    flushSave(); clearTimeout(srv.timer); if (srv.pid && srv.role !== "viewer" && srv.status !== "conflict") await serverSave();
+    const r = await sjson("POST", "/api/projects", { data: defaultState(), note: "Proyek baru" });
+    await openServerProject(r.id); projModal.open = false; toast("Proyek baru dibuat.", { ok: true });
+  }),
+  "pm-delete": () => pmRun(async () => {
+    if (!window.confirm(`Hapus proyek "${state.me.title || "tanpa judul"}"? Proyek hilang dari daftar semua anggota.`)) return;
+    await sjson("DELETE", `/api/projects/${srv.pid}`, {}); srv.pid = null;
+    await openServerProject(); projModal.open = false; toast("Proyek dihapus.");
+  }),
+  "pm-add": () => pmRun(async () => {
+    const r = await sjson("POST", `/api/projects/${srv.pid}/members`, { username: $("#pmUser").value.trim(), role: $("#pmRole").value });
+    srv.members = r.members;
+  }, "Anggota ditambahkan."),
+  "pm-rm": (el) => pmRun(async () => { srv.members = (await sjson("DELETE", `/api/projects/${srv.pid}/members/${el.dataset.id}`, {})).members; }, "Anggota dikeluarkan."),
+  "pm-restore": (el) => pmRun(async () => {
+    if (!window.confirm("Pulihkan versi ini? Versi sekarang tetap tersimpan di riwayat.")) return;
+    clearTimeout(srv.timer);
+    const r = await sjson("POST", `/api/projects/${srv.pid}/versions/${el.dataset.id}/restore`, {});
+    state = normalizeState(r.data); srv.version = r.version; srv.status = "saved"; srv.savedAt = Date.now();
+    projModal.versions = (await sjson("GET", `/api/projects/${srv.pid}/versions`)).versions;
+    try { localStorage.setItem(storeKey(), JSON.stringify(state)); } catch {}
+    render(); srvStatus();
+  }, "Versi dipulihkan."),
+  "pm-pass": () => pmRun(async () => {
+    await sjson("POST", "/api/password", { old: $("#pmOld").value, new: $("#pmNew").value });
+    $("#pmOld").value = ""; $("#pmNew").value = "";
+  }, "Password diganti."),
   "log-add": () => {
     const act = $("#logAct").value.trim(); if (!act) { toast("Isi kegiatan terlebih dahulu."); return; }
     state.exec.log.push({ date: $("#logDate").value, activity: act.slice(0, 300), n: $("#logN").value.trim().slice(0, 40) });
@@ -2035,8 +2091,15 @@ const actions = {
     const bp = state.blueprint.data; if (!bp || state.blueprint.locked) return;
     if (!window.confirm("Kunci Rencana Hasil sekarang? Rencana tetap bisa diubah setelahnya, tetapi setiap perubahan akan dicatat dan perlu diungkapkan di paper.")) return;
     const snapshot = structuredClone(bpClean(bp));
-    const hash = await sha256Hex(JSON.stringify(snapshot));
-    state.blueprint.locked = { at: Date.now(), hash, snapshot };
+    const json = JSON.stringify(snapshot);
+    if (serverMode() && srv.pid) {
+      try {
+        const r = await sjson("POST", `/api/projects/${srv.pid}/lock`, { snapshot: json });
+        state.blueprint.locked = { at: Date.parse(r.locked_at), hash: r.hash, snapshot, server: true, lockId: r.id };
+      } catch (e) { toast(`Gagal mengunci di server: ${e.message}`, { ms: 7000 }); return; }
+    } else {
+      state.blueprint.locked = { at: Date.now(), hash: await sha256Hex(json), snapshot };
+    }
     save(); render(); toast("Rencana dikunci.", { ok: true });
   },
   "sync-make": () => runTask("sync-make", async () => {
@@ -2208,6 +2271,7 @@ document.addEventListener("change", (e) => {
     runTask("results-files", async () => {
       const out = await readUploads(files);
       figData = out.figData; delete out.figData; await saveFigs(figData, figNs());
+      if (serverMode() && srv.pid && srv.role !== "viewer") { try { await sjson("PUT", `/api/projects/${srv.pid}/files`, { files: figData }); } catch (e) { toast(`Gambar belum tersimpan di server: ${e.message}`, { ms: 7000 }); } }
       out.files = files.map((f) => f.name);
       if (!out.figures.length && !out.tables.length && !out.texts.length && !out.project) throw new Error("Tidak ada tabel, gambar, atau output teks yang terbaca. Periksa format file (lihat daftar file yang dilewati).");
       state.results = { ...state.results, items: out, sug: null, applied: state.results.applied };
@@ -2225,8 +2289,9 @@ document.addEventListener("change", (e) => {
       try { obj = JSON.parse(txt); } catch { throw new Error("File bukan data sesi Research Lab yang valid."); }
       if (!obj || typeof obj !== "object" || !obj.me || !obj.lit) throw new Error("File bukan data sesi Research Lab yang valid.");
       if (!window.confirm(`Muat data sesi "${String(obj.me.title || "tanpa judul").slice(0, 80)}"? Data sesi di browser ini untuk akun ini akan diganti.`)) return;
-      localStorage.setItem(scoped(STORE_KEY), txt);
+      localStorage.setItem(storeKey(), txt);
       state = load();
+      if (serverMode() && srv.pid) { clearTimeout(srv.timer); await serverSave(); }
       toast("Data sesi dimuat. API key tidak ikut tersimpan di file; isi ulang bila perlu.", { ok: true, ms: 6000 });
     });
     return;
@@ -2391,6 +2456,126 @@ function updateChip() {
   else { chip.textContent = !ai && !hasOpenAlexKey() ? "Isi 2 API key" : !ai ? "Isi Research Lab key" : "Isi API key OpenAlex"; chip.className = "chip err"; }
 }
 
+// ---------- Mode server (VPS: CodeIgniter 4 + MySQL) ----------
+// Aktif bila /api/config menyatakan server "ci4": login sesi, proyek tersimpan di server per akun/tim,
+// simpan otomatis dengan deteksi konflik, riwayat versi, kunci rencana bertanda waktu server.
+const serverMode = () => config?.server === "ci4";
+const projKey = () => { const a = getAuth(); return a ? `research-lab-project:${a.user}` : ""; };
+async function sjson(method, path, body) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json", ...(srv.pid ? { "x-project-id": String(srv.pid) } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin" });
+  let d = null; try { d = await r.json(); } catch {}
+  if (r.status === 401 && d?.code === "login") { logout(true); throw Object.assign(new Error("Sesi login berakhir."), { status: 401 }); }
+  if (!r.ok) throw Object.assign(new Error(d?.error || `Server mengembalikan status ${r.status}.`), { status: r.status, data: d });
+  return d;
+}
+function srvStatus() {
+  const el = $("#saveState"); if (!el) return;
+  const t = srv.savedAt ? new Date(srv.savedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "";
+  const map = { saving: "Menyimpan…", saved: `Tersimpan di server${t ? ` · ${t}` : ""}`, error: "Gagal menyimpan ke server; tersimpan di browser, dicoba lagi", conflict: "Konflik: proyek diubah di tempat lain", viewer: "Hanya baca" };
+  el.textContent = serverMode() && srv.pid ? (map[srv.status] || "") : "";
+  el.className = `save-state ${srv.status}`;
+  const pb = $("#projBtn"); if (pb) { pb.hidden = !(serverMode() && srv.pid); pb.textContent = `📁 ${(srv.title || state.me.title || "Proyek tanpa judul").slice(0, 32)}${(srv.title || state.me.title || "").length > 32 ? "…" : ""}`; }
+  const ad = $("#adminLink"); if (ad) ad.hidden = !(serverMode() && srv.userRole === "admin");
+  const bn = $("#srvBanner");
+  if (bn) {
+    if (srv.status === "conflict" && srv.conflict) {
+      bn.hidden = false;
+      bn.innerHTML = `<b>Proyek ini sudah diubah${srv.conflict.updated_by ? ` oleh ${esc(srv.conflict.updated_by)}` : ""}${srv.conflict.updated_at ? ` pada ${new Date(srv.conflict.updated_at).toLocaleString("id-ID")}` : ""}.</b> Perubahan Anda belum tersimpan ke server. <button type="button" class="btn ghost small" data-act="srv-reload">Muat versi terbaru</button> <button type="button" class="btn ghost small" data-act="srv-overwrite">Timpa dengan versi saya</button>`;
+    } else if (srv.role === "viewer") { bn.hidden = false; bn.innerHTML = "Anda anggota <b>hanya baca</b> pada proyek ini. Perubahan tidak disimpan ke server."; }
+    else bn.hidden = true;
+  }
+}
+function scheduleServerSave(delay = 1500) {
+  if (!serverMode() || !srv.pid || loggedOutGate || srv.role === "viewer" || srv.status === "conflict") return;
+  clearTimeout(srv.timer); srv.timer = setTimeout(serverSave, delay);
+}
+async function serverSave(force = false) {
+  if (!srv.pid || srv.role === "viewer") return;
+  if (srv.inflight) { srv.dirty = true; return; }
+  srv.inflight = true; srv.dirty = false; srv.status = "saving"; srvStatus();
+  try {
+    const r = await sjson("PUT", `/api/projects/${srv.pid}`, { baseVersion: srv.version, data: state, ...(force ? { force: true, note: "Menimpa perubahan anggota lain" } : {}) });
+    srv.version = r.version; srv.savedAt = Date.now(); srv.status = "saved"; srv.conflict = null; srv.title = state.me.title;
+  } catch (e) {
+    if (e.status === 409) { srv.status = "conflict"; srv.conflict = e.data || {}; }
+    else if (e.status !== 401) { srv.status = "error"; setTimeout(() => scheduleServerSave(0), 10000); }
+  } finally {
+    srv.inflight = false; srvStatus();
+    if (srv.dirty && srv.status === "saved") scheduleServerSave(300);
+  }
+}
+window.addEventListener("beforeunload", () => {
+  if (!serverMode() || !srv.pid || srv.role === "viewer" || srv.status === "conflict") return;
+  if (srv.timer || srv.dirty || srv.status === "error") {
+    try { navigator.sendBeacon(`/api/projects/${srv.pid}/save`, new Blob([JSON.stringify({ baseVersion: srv.version, data: state })], { type: "application/json" })); } catch {}
+  }
+});
+// Membuka proyek dari server (atau membuat yang pertama).
+async function openServerProject(preferId) {
+  const list = (await sjson("GET", "/api/projects")).projects;
+  let id = preferId || Number(localStorage.getItem(projKey()) || 0);
+  if (!list.some((p) => p.id === id)) id = list[0]?.id || 0;
+  if (!id) {
+    // Proyek pertama: tawarkan memindahkan draf yang ada di browser ini.
+    let data = defaultState();
+    try {
+      const a = getAuth(); const local = localStorage.getItem(`${STORE_KEY}:${a.user}`) || localStorage.getItem(STORE_KEY);
+      if (local) { const s = normalizeState(JSON.parse(local)); if (s.me.title.trim() && window.confirm(`Pindahkan draf "${s.me.title.slice(0, 80)}" dari browser ini ke server sebagai proyek pertama Anda?`)) data = s; }
+    } catch {}
+    id = (await sjson("POST", "/api/projects", { data, note: "Proyek pertama" })).id;
+  }
+  const p = await sjson("GET", `/api/projects/${id}`);
+  srv.pid = p.id; srv.version = p.version; srv.role = p.role; srv.title = p.title; srv.members = p.members; srv.conflict = null;
+  srv.status = p.role === "viewer" ? "viewer" : "saved"; srv.savedAt = Date.parse(p.updated_at) || Date.now();
+  try { localStorage.setItem(projKey(), String(id)); } catch {}
+  state = normalizeState(p.data && Object.keys(p.data).length ? p.data : {});
+  memKeys = { ai: "", openalex: "" };
+  try { const f = await sjson("GET", `/api/projects/${id}/files`); figData = f.files || {}; } catch { figData = {}; }
+  if (!stepUnlocked(state.step)) state.step = firstOpenStep();
+  try { localStorage.setItem(storeKey(), JSON.stringify(state)); } catch {}
+  srvStatus(); updateChip(); render();
+}
+const projModal = { open: false, tab: "list", list: [], versions: [], locks: [], msg: "", err: "" };
+async function openProjModal(tab = "list") {
+  projModal.open = true; projModal.tab = tab; projModal.msg = ""; projModal.err = "";
+  try {
+    projModal.list = (await sjson("GET", "/api/projects")).projects;
+    if (srv.pid) {
+      const [v, l, p] = await Promise.all([sjson("GET", `/api/projects/${srv.pid}/versions`), sjson("GET", `/api/projects/${srv.pid}/locks`), sjson("GET", `/api/projects/${srv.pid}`)]);
+      projModal.versions = v.versions; projModal.locks = l.locks; srv.members = p.members;
+    }
+  } catch (e) { projModal.err = e.message; }
+  renderProjModal();
+}
+function renderProjModal() {
+  const m = $("#projModal"); if (!m) return;
+  m.hidden = !projModal.open; document.body.classList.toggle("locked", projModal.open);
+  if (!projModal.open) return;
+  const P = projModal; const owner = srv.role === "owner"; const fmt = (t) => (t ? new Date(t).toLocaleString("id-ID") : "-");
+  const tabs = [["list", "Proyek saya"], ["team", "Anggota tim"], ["versions", "Riwayat versi"], ["account", "Akun"]];
+  const body = {
+    list: `<ul class="pm-list">${P.list.map((p) => `<li class="${p.id === srv.pid ? "cur" : ""}"><div><b>${esc(p.title || "(tanpa judul)")}</b><div class="hint">Langkah ${p.step + 1} · ${p.role === "owner" ? "pemilik" : p.role === "editor" ? "penyunting" : "hanya baca"}${p.owner ? ` · pemilik ${esc(p.owner)}` : ""} · diperbarui ${fmt(p.updated_at)}</div></div>${p.id === srv.pid ? '<span class="tag std-opt">Sedang dibuka</span>' : `<button type="button" class="btn ghost small" data-act="pm-open" data-id="${p.id}">Buka</button>`}</li>`).join("")}</ul>
+      <div class="row-btns"><button type="button" class="btn primary" data-act="pm-new">+ Proyek baru</button>${owner ? `<button type="button" class="btn ghost" data-act="pm-delete">Hapus proyek ini</button>` : ""}</div>`,
+    team: `<p class="hint" style="margin:0">Anggota bisa membuka dan menyunting proyek yang sama dari akun masing-masing. Bila dua orang menyunting bersamaan, yang menyimpan belakangan diberi pilihan memuat versi terbaru atau menimpa.</p>
+      <ul class="pm-list">${srv.members.map((x) => `<li><div><b>${esc(x.username)}</b>${x.name ? ` <span class="hint">${esc(x.name)}</span>` : ""}<div class="hint">${x.role === "owner" ? "Pemilik" : x.role === "editor" ? "Penyunting" : "Hanya baca"}</div></div>${owner && x.role !== "owner" ? `<button type="button" class="btn ghost small" data-act="pm-rm" data-id="${x.user_id}">Keluarkan</button>` : ""}</li>`).join("")}</ul>
+      ${owner ? `<div class="row"><label class="field" style="flex:2 1 180px"><span>Username anggota</span><input id="pmUser" autocapitalize="none"></label><label class="field" style="flex:1 1 140px"><span>Peran</span><select id="pmRole"><option value="editor">Penyunting</option><option value="viewer">Hanya baca</option></select></label><button type="button" class="btn ghost" data-act="pm-add" style="align-self:flex-end">Tambah</button></div><p class="hint">Akun anggota dibuat oleh admin.</p>` : '<p class="hint">Hanya pemilik proyek yang dapat mengatur anggota.</p>'}`,
+    versions: `<p class="hint" style="margin:0">Versi disimpan otomatis paling sering setiap 10 menit, dan setiap kali dipulihkan atau ditimpa. Memulihkan membuat versi baru, jadi versi sekarang tidak hilang.</p>
+      <ul class="pm-list">${P.versions.map((v) => `<li><div><b>Versi ${v.version}</b> · ${fmt(v.created_at)}<div class="hint">${esc(v.username || "-")} · ${esc(v.note || "")}</div></div>${srv.role !== "viewer" ? `<button type="button" class="btn ghost small" data-act="pm-restore" data-id="${v.id}">Pulihkan</button>` : ""}</li>`).join("") || '<li class="hint">Belum ada versi.</li>'}</ul>
+      <h3>Riwayat kunci Rencana Hasil</h3><ul class="pm-list">${P.locks.map((l) => `<li><div><b>${fmt(l.locked_at)}</b> <span class="hint">waktu server · ${esc(l.username || "-")}</span><div class="hint">sidik jari <code>${esc(l.hash)}</code></div></div></li>`).join("") || '<li class="hint">Belum pernah dikunci.</li>'}</ul>`,
+    account: `<div class="row"><label class="field" style="flex:1 1 180px"><span>Password lama</span><input type="password" id="pmOld" autocomplete="current-password"></label><label class="field" style="flex:1 1 180px"><span>Password baru (min. 10)</span><input type="password" id="pmNew" autocomplete="new-password"></label><button type="button" class="btn ghost" data-act="pm-pass" style="align-self:flex-end">Ganti password</button></div>${srv.userRole === "admin" ? '<p><a href="/admin" target="_blank" rel="noopener">Buka panel admin</a> untuk mengelola akun.</p>' : ""}`,
+  };
+  m.innerHTML = `<div class="modal-card pm-card" role="dialog" aria-modal="true" aria-label="Proyek">
+    <div class="pm-head"><h2>Proyek</h2><button type="button" class="btn ghost small" data-act="pm-close" aria-label="Tutup">Tutup</button></div>
+    <div class="pm-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" class="pm-tab ${P.tab === k ? "on" : ""}" aria-selected="${P.tab === k}" data-act="pm-tab" data-k="${k}">${l}</button>`).join("")}</div>
+    ${P.msg ? `<div class="alert ok">${esc(P.msg)}</div>` : ""}${P.err ? `<div class="alert err">${esc(P.err)}</div>` : ""}
+    ${body[P.tab]}</div>`;
+}
+async function pmRun(fn, msg) {
+  projModal.err = ""; projModal.msg = "";
+  try { await fn(); if (msg) projModal.msg = msg; } catch (e) { projModal.err = e.message; }
+  renderProjModal();
+}
+
 // ---------- login ----------
 function showUser() {
   const a = getAuth(); const box = $("#userBox");
@@ -2406,6 +2591,11 @@ function showLogin(show) {
 function logout(silent = false) {
   if (!silent && !window.confirm("Keluar dari akun ini? Draf Anda tetap tersimpan di browser ini untuk akun Anda.")) return;
   flushSave();
+  if (serverMode()) {
+    if (!silent && srv.pid && srv.role !== "viewer") { clearTimeout(srv.timer); serverSave(); }
+    fetch("/api/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "same-origin" }).catch(() => {});
+    Object.assign(srv, { pid: null, version: 0, role: "", title: "", status: "", conflict: null, members: [], userRole: "" }); clearTimeout(srv.timer); srvStatus();
+  }
   clearAuth(); loggedOutGate = true;
   state = defaultState(); memKeys = { ai: "", openalex: "" }; keyCheck = { ai: null, openalex: null }; figData = {};
   Object.keys(errors).forEach((k) => delete errors[k]); Object.keys(busy).forEach((k) => delete busy[k]);
@@ -2430,11 +2620,16 @@ $("#loginForm").addEventListener("submit", async (e) => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.token) throw new Error(d.error || "Gagal masuk. Coba lagi.");
     setAuth({ token: d.token, user: d.user, exp: d.exp });
-    adoptLegacy(d.user);
     loggedOutGate = false;
-    state = load(); memKeys = { ai: "", openalex: "" };
     $("#loginPass").value = "";
-    figData = await loadFigs(figNs());
+    if (serverMode()) {
+      srv.userRole = d.role || "";
+      await openServerProject();
+    } else {
+      adoptLegacy(d.user);
+      state = load(); memKeys = { ai: "", openalex: "" };
+      figData = await loadFigs(figNs());
+    }
     if (!stepUnlocked(state.step)) state.step = firstOpenStep();
     showLogin(false); showUser(); updateChip(); render();
     toast(`Selamat datang, ${d.user}.`, { ok: true });
@@ -2461,9 +2656,15 @@ async function init() {
     if (config.loginRequired) {
       const a = getAuth();
       let ok = false;
-      if (a) { try { const r = await fetch("/api/login", { headers: { "x-auth-token": a.token } }); ok = r.ok; } catch { ok = true; } }
+      let me = null;
+      if (a) { try { const r = await fetch("/api/login", { headers: { "x-auth-token": a.token }, credentials: "same-origin" }); ok = r.ok; if (ok) me = await r.json().catch(() => null); } catch { ok = true; } }
       if (!ok) { logout(true); return; }
       showUser();
+      if (serverMode()) {
+        srv.userRole = me?.role || "";
+        try { await openServerProject(); } catch (e) { toast(`Gagal memuat proyek dari server: ${e.message}`, { ms: 8000 }); }
+        updateChip(); return;
+      }
     }
     loadFigs(figNs()).then((m) => { figData = m; if (state.results.items?.figures?.length) render(); });
     if (config.eventName) $("#eventName").textContent = config.eventName;

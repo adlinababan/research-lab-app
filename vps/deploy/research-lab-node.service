@@ -1,0 +1,25 @@
+# Layanan Node internal (logika AI, OpenAlex, .docx). Hanya mendengar di 127.0.0.1.
+# Salin ke /etc/systemd/system/research-lab-node.service lalu: systemctl daemon-reload && systemctl enable --now research-lab-node
+[Unit]
+Description=Research Lab - layanan AI internal (Node)
+After=network.target
+
+[Service]
+Type=simple
+User=researchlab
+Group=researchlab
+WorkingDirectory=/var/www/research-lab
+EnvironmentFile=/etc/research-lab/node.env
+ExecStart=/usr/bin/node dev-server.js
+Restart=always
+RestartSec=3
+# Pengamanan dasar
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/research-lab
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

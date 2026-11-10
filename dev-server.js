@@ -38,4 +38,4 @@ http.createServer(async (req, res) => {
   if (!file.startsWith(path.join(root, "public")) || !fs.existsSync(file)) { res.statusCode = 404; return res.end("Not found"); }
   res.setHeader("Content-Type", TYPES[path.extname(file)] || "application/octet-stream");
   fs.createReadStream(file).pipe(res);
-}).listen(PORT, () => console.log(`Research Lab berjalan di http://localhost:${PORT}${process.env.MOCK === "1" ? " (mode uji)" : ""}`));
+}).listen(PORT, process.env.HOST || undefined, () => console.log(`Research Lab berjalan di http://${process.env.HOST || "localhost"}:${PORT}${process.env.MOCK === "1" ? " (mode uji)" : ""}${process.env.INTERNAL_TOKEN ? " · mode layanan internal (VPS)" : ""}`));

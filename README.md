@@ -34,6 +34,8 @@ Tidak ada dependensi npm. Backend berupa fungsi serverless Vercel di folder `api
 
 ---
 
+> **Versi VPS (CodeIgniter 4 + MySQL):** data tersimpan di server per proyek, tim penulis, riwayat versi, kunci rencana bertanda waktu server, dan panel admin. Lihat [`vps/README-VPS.md`](vps/README-VPS.md) (branch `ci4-mysql`).
+
 ## 0. Login (username dan password)
 
 Bila env **`APP_USERS`** diisi, aplikasi menampilkan layar **Masuk** dan semua API (`/api/search`, `/api/llm`, `/api/docx`, `/api/check`) menolak permintaan tanpa login. Bila kosong, aplikasi terbuka seperti sebelumnya (atau memakai `ACCESS_CODE` lama).
