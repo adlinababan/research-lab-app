@@ -107,14 +107,23 @@ SCHEME=$([ "$HTTPS" = 1 ] && echo https || echo http)
 echo "Akses web: $SCHEME://$DOMAIN"
 if [ ! -f "$CI/.env" ]; then
   echo "Masukkan data database yang dibuat di CyberPanel (Databases › Create Database)."
-  read -rp "  Nama database   : " DBNAME
-  read -rp "  Pengguna (user) : " DBUSER
-  read -rsp "  Password        : " DBPASS; echo
-  MYSQL_PWD="$DBPASS" mysql -h localhost -u "$DBUSER" "$DBNAME" -e "SELECT 1" >/dev/null 2>&1 \
-    || die "Tidak bisa masuk ke database $DBNAME dengan pengguna $DBUSER. Periksa lagi di CyberPanel › Databases."
+  DBHOST=""
+  for try in 1 2 3; do
+    read -rp "  Nama database   : " DBNAME
+    read -rp "  Pengguna (user) : " DBUSER
+    read -rsp "  Password        : " DBPASS; echo
+    DBNAME=$(printf '%s' "$DBNAME" | tr -d '[:space:]'); DBUSER=$(printf '%s' "$DBUSER" | tr -d '[:space:]')
+    for h in localhost 127.0.0.1; do
+      if ERR=$(MYSQL_PWD="$DBPASS" mysql -h "$h" -u "$DBUSER" "$DBNAME" -e "SELECT 1" 2>&1 >/dev/null); then DBHOST=$h; break; fi
+      echo "  [$h] $ERR"
+    done
+    [ -n "$DBHOST" ] && { echo "  Terhubung ke database $DBNAME lewat $DBHOST."; break; }
+    echo "  Belum bisa masuk (percobaan $try dari 3). Password peka huruf besar/kecil; ketik ulang dengan teliti."
+  done
+  [ -n "$DBHOST" ] || die "Tidak bisa masuk ke database $DBNAME dengan pengguna $DBUSER. Kirim pesan error di atas (tanpa password) untuk dibantu."
   esc() { printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'; }
   sed -e "s|https://research-lab.example.ac.id/|$SCHEME://$DOMAIN/|" \
-      -e "s|^database.default.hostname = .*|database.default.hostname = localhost|" \
+      -e "s|^database.default.hostname = .*|database.default.hostname = $DBHOST|" \
       -e "s|^database.default.database = .*|database.default.database = $(esc "$DBNAME")|" \
       -e "s|^database.default.username = .*|database.default.username = $(esc "$DBUSER")|" \
       -e "s|^database.default.password = .*|database.default.password = '$(esc "$DBPASS")'|" \
@@ -122,7 +131,7 @@ if [ ! -f "$CI/.env" ]; then
   if [ "$HTTPS" != 1 ]; then
     sed -i -e 's/^app.forceGlobalSecureRequests = true/app.forceGlobalSecureRequests = false/' -e 's/^cookie.secure = true/cookie.secure = false/' "$CI/.env"
   fi
-  printf '[client]\nuser=%s\npassword="%s"\n' "$DBUSER" "$DBPASS" > /etc/research-lab/mysql-backup.cnf
+  printf '[client]\nhost=%s\nuser=%s\npassword="%s"\n' "$DBHOST" "$DBUSER" "$DBPASS" > /etc/research-lab/mysql-backup.cnf
   echo "$DBNAME" > /etc/research-lab/dbname
   chmod 600 /etc/research-lab/mysql-backup.cnf
   (cd "$CI" && $PHPBIN spark key:generate --force >/dev/null)
