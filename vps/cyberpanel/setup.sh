@@ -95,6 +95,15 @@ fi
 
 # -------------------------------------------------------------------------------------
 say "3/7 Database dan rahasia"
+# Akses root MariaDB: soket unix, atau password root yang disimpan CyberPanel
+sqlq() { printf '%s' "$1" | sed -e "s/\\\\/\\\\\\\\/g" -e "s/'/\\\\'/g"; }
+rootsql() {
+  if mysql -u root -e "SELECT 1" >/dev/null 2>&1; then mysql -u root "$@"; return; fi
+  local f=/etc/cyberpanel/mysqlPassword pw=""
+  [ -f "$f" ] || return 1
+  pw=$($PHPBIN -r '$s=trim(file_get_contents($argv[1])); $j=json_decode($s,true); echo is_array($j)?($j["mysqlpassword"]??""):$s;' "$f")
+  MYSQL_PWD="$pw" mysql -u root "$@"
+}
 mkdir -p /etc/research-lab && chmod 750 /etc/research-lab
 if [ -f /etc/research-lab/node.env ]; then
   TOKEN=$(grep '^INTERNAL_TOKEN=' /etc/research-lab/node.env | cut -d= -f2-)
@@ -118,6 +127,22 @@ if [ ! -f "$CI/.env" ]; then
       echo "  [$h] $ERR"
     done
     [ -n "$DBHOST" ] && { echo "  Terhubung ke database $DBNAME lewat $DBHOST."; break; }
+    if rootsql -e "SELECT 1" >/dev/null 2>&1; then
+      echo "  Akun yang terdaftar untuk $DBUSER di MariaDB:"
+      rootsql -N -e "SELECT CONCAT('    ', User, '@', Host) FROM mysql.user WHERE User='$(sqlq "$DBUSER")'" || true
+      [ -n "$(rootsql -N -e "SHOW DATABASES LIKE '$(sqlq "$DBNAME")'" 2>/dev/null)" ] || echo "    (database $DBNAME tidak ditemukan; cek ejaannya di CyberPanel)"
+      read -rp "  Setel ulang password $DBUSER@localhost menjadi password yang baru Anda ketik, dan beri akses ke $DBNAME? [y/N] " yn
+      if [ "${yn,,}" = y ]; then
+        rootsql -e "CREATE USER IF NOT EXISTS '$(sqlq "$DBUSER")'@'localhost' IDENTIFIED BY '$(sqlq "$DBPASS")';
+                    ALTER USER '$(sqlq "$DBUSER")'@'localhost' IDENTIFIED BY '$(sqlq "$DBPASS")';
+                    GRANT ALL PRIVILEGES ON \`$(sqlq "$DBNAME")\`.* TO '$(sqlq "$DBUSER")'@'localhost';
+                    FLUSH PRIVILEGES;" && echo "  Password disetel ulang."
+        if ERR=$(MYSQL_PWD="$DBPASS" mysql -h localhost -u "$DBUSER" "$DBNAME" -e "SELECT 1" 2>&1 >/dev/null); then
+          DBHOST=localhost; echo "  Terhubung ke database $DBNAME."; break
+        fi
+        echo "  Masih gagal: $ERR"
+      fi
+    fi
     echo "  Belum bisa masuk (percobaan $try dari 3). Password peka huruf besar/kecil; ketik ulang dengan teliti."
   done
   [ -n "$DBHOST" ] || die "Tidak bisa masuk ke database $DBNAME dengan pengguna $DBUSER. Kirim pesan error di atas (tanpa password) untuk dibantu."
