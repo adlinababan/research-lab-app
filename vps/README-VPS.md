@@ -81,6 +81,20 @@ cd vps/ci4 && php spark rl:admin admin && php spark rl:check
 
 Akun admin sengaja tidak disertakan dalam file SQL agar tidak ada password bawaan.
 
+## Server dengan CyberPanel
+
+Kalau VPS sudah memakai **CyberPanel** (OpenLiteSpeed + MariaDB), **jangan jalankan `install.sh`**, karena skrip itu memasang Nginx. Gunakan `vps/cyberpanel/setup.sh`:
+
+1. CyberPanel › **Websites › Create Website** untuk domain Anda, dengan PHP 8.3.
+2. CyberPanel › **Databases › Create Database**, lalu impor `vps/database/research_lab.sql` lewat phpMyAdmin (opsional; migrasi juga bisa membuat tabelnya).
+3. Lewat SSH sebagai root:
+   ```bash
+   curl -fsSLo setup.sh https://raw.githubusercontent.com/adlinababan/research-lab-app/ci4-mysql/vps/cyberpanel/setup.sh
+   DOMAIN=research-lab.my.id bash setup.sh
+   ```
+   Skrip menanyakan nama, pengguna, dan password database (tidak tampil di layar). Kode diletakkan di `/home/DOMAIN/app`, di luar `public_html`. `public_html` hanya berisi tampilan web dan `rl.php`, yang meneruskan `/api` dan `/admin` ke CodeIgniter.
+4. CyberPanel › **SSL › Manage SSL** untuk menerbitkan HTTPS, lalu jalankan `setup.sh` sekali lagi agar cookie aman diaktifkan.
+
 ## Setelah terpasang
 
 1. **Key AI.** Isi `OPENROUTER_API_KEY` dan, bila ada, `OPENALEX_API_KEY` di `/etc/research-lab/node.env`, lalu jalankan `systemctl restart research-lab-node`. Bila dikosongkan, setiap pengguna mengisi key sendiri di aplikasi.
