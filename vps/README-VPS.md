@@ -53,6 +53,34 @@ Skrip ini:
 
 Kalau `EMAIL` dikosongkan, HTTPS ditunda dan cookie sementara diizinkan lewat HTTP. Pasang HTTPS secepatnya dengan `certbot --nginx -d DOMAIN`, lalu kembalikan `cookie.secure = true` dan `app.forceGlobalSecureRequests = true` di `vps/ci4/.env`.
 
+## Database
+
+Database tidak perlu diunduh terpisah. `install.sh` sudah membuat database `research_lab`, pengguna database `research_lab` dengan password acak (tersimpan di `vps/ci4/.env`), dan seluruh tabelnya lewat `php spark migrate`.
+
+Bila Ibu/Bapak memasang manual atau lebih suka phpMyAdmin, gunakan [`vps/database/research_lab.sql`](database/research_lab.sql). File itu berisi 8 tabel ditambah catatan migrasi, sehingga `php spark migrate` setelahnya tidak membuat ulang tabel.
+
+```bash
+mysql -u root -p -e "CREATE DATABASE research_lab CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE USER 'research_lab'@'localhost' IDENTIFIED BY 'GANTI_PASSWORD_KUAT';
+  GRANT ALL PRIVILEGES ON research_lab.* TO 'research_lab'@'localhost';"
+mysql -u root -p research_lab < vps/database/research_lab.sql
+# isi database.default.* di vps/ci4/.env, lalu:
+cd vps/ci4 && php spark rl:admin admin && php spark rl:check
+```
+
+| Tabel | Isi |
+|---|---|
+| `users` | Akun (admin/user), password bcrypt |
+| `projects` | Proyek penelitian; kolom `data` berisi seluruh sesi aplikasi (JSON) |
+| `project_members` | Anggota tim: owner, editor, viewer |
+| `project_versions` | Riwayat versi untuk dipulihkan |
+| `plan_locks` | Kunci Rencana Hasil (SHA-256 + waktu server) |
+| `project_files` | Gambar hasil analisis |
+| `ai_logs` | Log panggilan AI, pencarian, dan .docx |
+| `login_attempts` | Percobaan login (pembatasan tebak password) |
+
+Akun admin sengaja tidak disertakan dalam file SQL agar tidak ada password bawaan.
+
 ## Setelah terpasang
 
 1. **Key AI.** Isi `OPENROUTER_API_KEY` dan, bila ada, `OPENALEX_API_KEY` di `/etc/research-lab/node.env`, lalu jalankan `systemctl restart research-lab-node`. Bila dikosongkan, setiap pengguna mengisi key sendiri di aplikasi.
